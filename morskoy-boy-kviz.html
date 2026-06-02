@@ -1,0 +1,1590 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Морской бой + Квиз</title>
+  <style>
+    :root {
+      --bg-deep: #0a1628;
+      --bg-panel: #122a4a;
+      --accent: #3d9be9;
+      --accent-glow: #5eb8ff;
+      --gold: #f0c14b;
+      --hit: #e74c3c;
+      --miss: #7f8c9a;
+      --wound: #f39c12;
+      --kill: #c0392b;
+      --success: #2ecc71;
+      --text: #e8f4fc;
+      --text-dim: #8eb4d4;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: linear-gradient(160deg, var(--bg-deep) 0%, #0d2137 50%, #061018 100%);
+      min-height: 100vh;
+      color: var(--text);
+      overflow-x: hidden;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(ellipse at 20% 80%, rgba(61,155,233,.08) 0%, transparent 50%),
+                  radial-gradient(ellipse at 80% 20%, rgba(240,193,75,.05) 0%, transparent 40%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .screen { display: none; position: relative; z-index: 1; min-height: 100vh; padding: 1.5rem; }
+    .screen.active { display: flex; flex-direction: column; align-items: center; }
+    h1 {
+      font-size: clamp(1.5rem, 4vw, 2.2rem);
+      text-align: center;
+      margin-bottom: .25rem;
+      background: linear-gradient(90deg, var(--accent-glow), var(--gold));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .subtitle { color: var(--text-dim); text-align: center; margin-bottom: 1.5rem; font-size: .95rem; }
+    .panel {
+      background: rgba(18, 42, 74, .85);
+      border: 1px solid rgba(94, 184, 255, .25);
+      border-radius: 16px;
+      padding: 1.5rem 2rem;
+      max-width: 520px;
+      width: 100%;
+      box-shadow: 0 8px 32px rgba(0,0,0,.4);
+    }
+    .panel h2 { font-size: 1rem; color: var(--accent-glow); margin-bottom: .75rem; font-weight: 600; }
+    .options { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.25rem; }
+    .options label {
+      flex: 1 1 calc(50% - .25rem);
+      min-width: 140px;
+      cursor: pointer;
+      padding: .65rem .9rem;
+      border-radius: 10px;
+      border: 2px solid rgba(94,184,255,.2);
+      background: rgba(10,22,40,.6);
+      transition: all .2s;
+      font-size: .9rem;
+    }
+    .options label:hover { border-color: var(--accent); background: rgba(61,155,233,.15); }
+    .options input { display: none; }
+    .options input:checked + span { color: var(--gold); font-weight: 600; }
+    .options label:has(input:checked) {
+      border-color: var(--gold);
+      background: rgba(240,193,75,.12);
+      box-shadow: 0 0 12px rgba(240,193,75,.2);
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: .85rem 1.5rem;
+      font-size: 1rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: transform .15s, box-shadow .2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), #2a7bc8);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(61,155,233,.4);
+    }
+    .btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 28px rgba(61,155,233,.5); }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+    .game-header {
+      width: 100%;
+      max-width: 900px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .75rem;
+    }
+    .stat {
+      background: var(--bg-panel);
+      border: 1px solid rgba(94,184,255,.2);
+      border-radius: 10px;
+      padding: .5rem 1rem;
+      font-size: .85rem;
+    }
+    .stat strong { color: var(--gold); margin-right: .35rem; }
+    .stat.correct strong { color: var(--success); }
+    .stat.wrong strong { color: var(--hit); }
+    .game-meta { font-size: .85rem; color: var(--text-dim); }
+    .board-wrap { display: flex; flex-direction: column; align-items: center; gap: .5rem; }
+    .board-labels { display: grid; grid-template-columns: 28px repeat(10, 36px); gap: 2px; font-size: .75rem; color: var(--text-dim); }
+    .board-labels .corner { width: 28px; }
+    .board-row-labels { display: flex; flex-direction: column; gap: 2px; margin-right: 4px; }
+    .board-row-labels span {
+      height: 36px; width: 24px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: .75rem; color: var(--text-dim);
+    }
+    .board-container { display: flex; align-items: flex-start; }
+    .board {
+      display: grid;
+      grid-template-columns: repeat(10, 36px);
+      grid-template-rows: repeat(10, 36px);
+      gap: 2px;
+      padding: 8px;
+      background: rgba(18, 42, 74, .9);
+      border-radius: 12px;
+      border: 2px solid rgba(94, 184, 255, .3);
+      box-shadow: inset 0 0 40px rgba(0,0,0,.3);
+    }
+    .cell {
+      width: 36px; height: 36px;
+      border-radius: 6px;
+      background: linear-gradient(180deg, #1a4a6e 0%, #0f3050 100%);
+      border: 1px solid rgba(94,184,255,.15);
+      cursor: pointer;
+      transition: all .15s;
+      display: flex; align-items: center; justify-content: center;
+      font-size: .65rem; font-weight: 700; text-align: center; line-height: 1.1;
+      color: #fff;
+    }
+    .cell:hover:not(.shot) {
+      background: linear-gradient(180deg, #256a9a 0%, #1a5080 100%);
+      transform: scale(1.05);
+      box-shadow: 0 0 8px rgba(94,184,255,.4);
+    }
+    .cell.shot { cursor: default; pointer-events: none; }
+    .cell.miss { background: #2c3e50; color: var(--miss); }
+    .cell.wound { background: linear-gradient(180deg, #d35400, #a04000); animation: pulse .4s; }
+    .cell.kill { background: linear-gradient(180deg, var(--kill), #7b241c); }
+    @keyframes pulse { 50% { transform: scale(1.1); } }
+    .modal-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(6, 16, 24, .85);
+      z-index: 100;
+      align-items: center; justify-content: center;
+      padding: 1rem;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--bg-panel);
+      border: 1px solid rgba(94,184,255,.35);
+      border-radius: 16px;
+      padding: 1.5rem;
+      max-width: 480px; width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,.5);
+      animation: modalIn .25s ease;
+    }
+    @keyframes modalIn {
+      from { opacity: 0; transform: scale(.95) translateY(-10px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .modal h3 { font-size: 1rem; color: var(--accent-glow); margin-bottom: 1rem; line-height: 1.4; }
+    .modal .answers { display: flex; flex-direction: column; gap: .5rem; }
+    .modal .answer-btn {
+      padding: .75rem 1rem;
+      text-align: left;
+      border-radius: 10px;
+      border: 2px solid rgba(94,184,255,.2);
+      background: rgba(10,22,40,.8);
+      color: var(--text);
+      cursor: pointer;
+      font-size: .9rem;
+      transition: all .15s;
+    }
+    .modal .answer-btn:hover { border-color: var(--accent); background: rgba(61,155,233,.2); }
+    .result-toast {
+      position: fixed;
+      bottom: 2rem; left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      padding: .75rem 1.5rem;
+      border-radius: 12px;
+      font-weight: 600;
+      z-index: 200;
+      opacity: 0;
+      transition: all .3s;
+      pointer-events: none;
+    }
+    .result-toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+    .result-toast.hit { background: var(--wound); color: #fff; }
+    .result-toast.kill { background: var(--kill); color: #fff; }
+    .result-toast.miss { background: #34495e; color: #ecf0f1; }
+    .result-toast.wrong { background: #7f8c8d; color: #fff; }
+    .win-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(6,16,24,.9);
+      z-index: 150;
+      align-items: center; justify-content: center;
+    }
+    .win-overlay.open { display: flex; }
+    .win-card {
+      text-align: center;
+      padding: 2rem;
+      background: var(--bg-panel);
+      border-radius: 20px;
+      border: 2px solid var(--gold);
+      max-width: 400px;
+    }
+    .win-card h2 { color: var(--gold); margin-bottom: 1rem; font-size: 1.5rem; }
+    .win-card p { margin-bottom: .5rem; color: var(--text-dim); }
+    .win-card .btn { margin-top: 1rem; }
+    .bank-warning {
+      width: 100%;
+      max-width: 900px;
+      margin-bottom: .75rem;
+      padding: .75rem 1rem;
+      border-radius: 10px;
+      background: rgba(243, 156, 18, .15);
+      border: 1px solid rgba(243, 156, 18, .45);
+      color: #ffd98a;
+      font-size: .85rem;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <div id="settings-screen" class="screen active">
+    <h1>⚓ Морской бой + Квиз</h1>
+    <p class="subtitle">Ответь на вопрос — и твой выстрел попадёт в цель</p>
+    <div class="panel">
+      <h2>Тема вопросов</h2>
+      <div class="options" id="theme-options"></div>
+      <h2>Уровень сложности</h2>
+      <div class="options" id="difficulty-options"></div>
+      <button class="btn btn-primary" id="start-btn">Начать игру</button>
+    </div>
+  </div>
+
+  <div id="game-screen" class="screen">
+    <div id="bank-warning" class="bank-warning" style="display:none" role="alert"></div>
+    <div class="game-header">
+      <div>
+        <h1>Морской бой</h1>
+        <p class="game-meta" id="game-meta"></p>
+      </div>
+      <div class="stats">
+        <div class="stat"><strong>Ходы:</strong><span id="moves">0</span></div>
+        <div class="stat correct"><strong>Верно:</strong><span id="correct-count">0</span></div>
+        <div class="stat wrong"><strong>Неверно:</strong><span id="wrong-count">0</span></div>
+        <div class="stat"><strong>Корабли:</strong><span id="ships-left">10</span></div>
+        <div class="stat"><strong>Клетки:</strong><span id="cells-left">100</span></div>
+        <div class="stat" id="cycle-stat" style="display:none"><strong>Цикл вопросов:</strong><span id="question-cycle">1</span></div>
+      </div>
+    </div>
+    <div class="board-wrap">
+      <div class="board-labels" id="col-labels"></div>
+      <div class="board-container">
+        <div class="board-row-labels" id="row-labels"></div>
+        <div class="board" id="board"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="quiz-modal">
+    <div class="modal">
+      <h3 id="question-text"></h3>
+      <div class="answers" id="answers"></div>
+    </div>
+  </div>
+
+  <div class="result-toast" id="toast"></div>
+
+  <div class="win-overlay" id="win-overlay">
+    <div class="win-card">
+      <h2>🎉 Победа!</h2>
+      <p id="win-stats"></p>
+      <button class="btn btn-primary" id="restart-btn">Новая игра</button>
+    </div>
+  </div>
+
+  <script>
+    const QUESTIONS = {
+      geography: { easy: [
+        { q: "Столица России?", options: ["Москва","Казань","Сочи","Омск"], correct: 0 },
+        { q: "На каком материке Египет?", options: ["Африка","Азия","Европа","Австралия"], correct: 0 },
+        { q: "Столица Франции?", options: ["Париж","Лион","Марсель","Ницца"], correct: 0 },
+        { q: "Сколько континентов?", options: ["6","5","7","4"], correct: 0 },
+        { q: "Столица Японии?", options: ["Токио","Киото","Осака","Нагоя"], correct: 0 },
+        { q: "Самая длинная река?", options: ["Нил","Амазонка","Волга","Дунай"], correct: 0 },
+        { q: "Океан у Австралии?", options: ["Тихий","Атлантический","Индийский","Северный Ледовитый"], correct: 0 },
+        { q: "Гора Эверест в...", options: ["Гималаях","Альпах","Андах","Урале"], correct: 0 }
+      ], medium: [
+        { q: "Столица Бразилии?", options: ["Бразилиа","Рио","Сан-Паулу","Сальвадор"], correct: 0 },
+        { q: "Крупнейшая пустыня?", options: ["Сахара","Гоби","Калахари","Атакама"], correct: 0 },
+        { q: "Озеро Байкал в...", options: ["России","Монголии","Казахстане","Китае"], correct: 0 },
+        { q: "Столица Канады?", options: ["Оттава","Торонто","Ванкувер","Монреаль"], correct: 0 },
+        { q: "Самая большая страна?", options: ["Россия","Канада","Китай","США"], correct: 0 },
+        { q: "Столица Италии?", options: ["Рим","Милан","Неаполь","Турин"], correct: 0 },
+        { q: "Пролив Европа–Африка?", options: ["Гибралтарский","Босфор","Ла-Манш","Берингов"], correct: 0 },
+        { q: "Альпы в основном в...", options: ["Швейцарии","Польше","Венгрии","Румынии"], correct: 0 }
+      ], hard: [
+        { q: "Столица Мьянмы?", options: ["Нейпьидо","Янгон","Мандалай","Баго"], correct: 0 },
+        { q: "Самое глубокое озеро?", options: ["Байкал","Танганьика","Виктория","Верхнее"], correct: 0 },
+        { q: "Волга впадает в...", options: ["Каспий","Чёрное море","Азов","Балтику"], correct: 0 },
+        { q: "Крупнейший остров?", options: ["Гренландия","Новая Гвинея","Борнео","Мадагаскар"], correct: 0 },
+        { q: "Столица Казахстана (с 1997)?", options: ["Астана","Алматы","Шымкент","Караганда"], correct: 0 },
+        { q: "Столица Новой Зеландии?", options: ["Веллингтон","Окленд","Крайстчёрч","Гамильтон"], correct: 0 },
+        { q: "Площадь Монако ~ (км²)?", options: ["2","20","200","2000"], correct: 0 },
+        { q: "Конституционная столица Боливии?", options: ["Сукре","Ла-Пас","Кочабамба","Оруро"], correct: 0 }
+      ]},
+      history: { easy: [
+        { q: "Начало ВОВ в СССР?", options: ["1941","1939","1945","1914"], correct: 0 },
+        { q: "Первый космонавт?", options: ["Гагарин","Леонов","Титов","Армстронг"], correct: 0 },
+        { q: "«Войну и мир» написал...", options: ["Толстой","Достоевский","Пушкин","Чехов"], correct: 0 },
+        { q: "Древняя столица Руси?", options: ["Киев","Москва","Новгород","Владимир"], correct: 0 },
+        { q: "Колумб — год открытия Америки?", options: ["1492","1517","1776","1066"], correct: 0 },
+        { q: "Первый президент США?", options: ["Вашингтон","Линкольн","Джефферсон","Рузвельт"], correct: 0 },
+        { q: "Пётр I — правитель...", options: ["России","Польши","Швеции","Франции"], correct: 0 },
+        { q: "ВОВ — война с...", options: ["Германией","Японией","Турцией","Швецией"], correct: 0 }
+      ], medium: [
+        { q: "Отмена крепостного права?", options: ["1861","1812","1905","1917"], correct: 0 },
+        { q: "Октябрьская революция?", options: ["1917","1905","1924","1941"], correct: 0 },
+        { q: "Падение Берлинской стены?", options: ["1989","1991","1975","2001"], correct: 0 },
+        { q: "Наполеон — император...", options: ["Франции","Италии","Испании","Австрии"], correct: 0 },
+        { q: "Куликовская битва?", options: ["1380","1240","1612","1812"], correct: 0 },
+        { q: "Император при 1812 г.?", options: ["Александр I","Николай I","Пётр I","Екатерина II"], correct: 0 },
+        { q: "Крестовые походы — эпоха...", options: ["Средневековья","Античности","Нового времени","Просвещения"], correct: 0 },
+        { q: "Оттепель — эпоха...", options: ["Хрущёва","Сталина","Брежнева","Ельцина"], correct: 0 }
+      ], hard: [
+        { q: "Вестфальский мир завершил...", options: ["30-летнюю войну","Столетнюю","Семилетнюю","Пелопоннесскую"], correct: 0 },
+        { q: "Основание Рима (легенда)?", options: ["753 до н.э.","476","1066","1453"], correct: 0 },
+        { q: "Первый император Рима?", options: ["Август","Нерон","Траян","Константин"], correct: 0 },
+        { q: "Крещение Руси (традиция)?", options: ["988","862","1240","1380"], correct: 0 },
+        { q: "Варфоломеевская ночь?", options: ["1572","1612","1789","1914"], correct: 0 },
+        { q: "Эмский приказ подписал...", options: ["Бисмарк","Наполеон III","Вильгельм I","Меттерних"], correct: 0 },
+        { q: "Триполийский союз против...", options: ["Османской империи","Австро-Венгрии","Пруссии","России"], correct: 0 },
+        { q: "Крымская война при...", options: ["Николае I","Александре II","Петре I","Александре I"], correct: 0 }
+      ]},
+      cinema: { easy: [
+        { q: "Режиссёр «Титаника»?", options: ["Кэмерон","Спилберг","Нолан","Тарантино"], correct: 0 },
+        { q: "Герой «Гарри Поттера»?", options: ["Гарри","Рон","Драко","Снейп"], correct: 0 },
+        { q: "«Мстители» — вселенная...", options: ["Marvel","DC","Star Wars","Disney"], correct: 0 },
+        { q: "«Матрица» — герой?", options: ["Нео","Морфеус","Смит","Тринити"], correct: 0 },
+        { q: "Джеймс Бонд в кино — это...", options: ["Агент 007","Итан Хант","Джейсон Борн","Джон Уик"], correct: 0 },
+        { q: "Злодей в маске в Star Wars?", options: ["Вейдер","Йода","Оби-Ван","Люк"], correct: 0 },
+        { q: "Мультфильм про рыбу Немо?", options: ["В поисках Немо","Шрек","Холодное сердце","Моана"], correct: 0 },
+        { q: "Снежная королева Disney?", options: ["Эльза","Ариэль","Белль","Мулан"], correct: 0 }
+      ], medium: [
+        { q: "Оскар «Форрест Гамп» — актёр?", options: ["Том Хэнкс","Ди Каприо","Питт","Круз"], correct: 0 },
+        { q: "«Криминальное чтиво» — режиссёр?", options: ["Тарантино","Скорсезе","Кубрик","Финчер"], correct: 0 },
+        { q: "Первый полный мульт Disney?", options: ["Белоснежка","Пиноккио","Бэмби","Дамбо"], correct: 0 },
+        { q: "«Властелин колец» снят в...", options: ["Новой Зеландии","Исландии","Ирландии","Шотландии"], correct: 0 },
+        { q: "Железный человек — актёр?", options: ["Дауни-мл.","Эванс","Хемсворт","Руффало"], correct: 0 },
+        { q: "«Начало» — год?", options: ["2010","2008","2012","2014"], correct: 0 },
+        { q: "«1+1» — фр. название?", options: ["Intouchables","Amélie","La Haine","Leon"], correct: 0 },
+        { q: "«Пианист» — режиссёр?", options: ["Полански","Андерсон","Вайда","Михалков"], correct: 0 }
+      ], hard: [
+        { q: "«Седьмая печать» — режиссёр?", options: ["Бергман","Феллини","Антониони","Тарковский"], correct: 0 },
+        { q: "Первый «Оскар» вручили в...", options: ["1929","1939","1945","1955"], correct: 0 },
+        { q: "«Заводной апельсин» — автор?", options: ["Бёрджесс","Оруэлл","Хаксли","Брэдбери"], correct: 0 },
+        { q: "Первый киносеанс Люмьеров?", options: ["1895","1905","1915","1885"], correct: 0 },
+        { q: "«Сталкер» по мотивам...", options: ["Пикника на обочине","Мастера и Маргариты","1984","Мы"], correct: 0 },
+        { q: "«Расёмон» — режиссёр?", options: ["Куросава","Озу","Мизогути","Миядзаки"], correct: 0 },
+        { q: "Догма 95 — страна?", options: ["Дания","Швеция","Норвегия","Германия"], correct: 0 },
+        { q: "Пальма d'Or 2023?", options: ["Anatomy of a Fall","Parasite","Amour","Dune"], correct: 0 }
+      ]},
+      sport: { easy: [
+        { q: "Игроков в футболе на поле?", options: ["11","9","10","12"], correct: 0 },
+        { q: "Колец на олимпийском флаге?", options: ["5","4","6","7"], correct: 0 },
+        { q: "Марафон ~ (км)?", options: ["42","21","10","100"], correct: 0 },
+        { q: "ЧМ по футболу 2018?", options: ["Россия","Бразилия","Катар","Германия"], correct: 0 },
+        { q: "Шахматы: по диагонали ходит...", options: ["Слон","Ладья","Конь","Пешка"], correct: 0 },
+        { q: "Кольцо в баскетболе (м)?", options: ["3.05","2.5","3.5","4"], correct: 0 },
+        { q: "Уимблдон — вид спорта?", options: ["Теннис","Гольф","Крикет","Поло"], correct: 0 },
+        { q: "Олимпиада 2024 — город?", options: ["Париж","Токио","Лос-Анджелес","Милан"], correct: 0 }
+      ], medium: [
+        { q: "Рекорд Болта 100 м (сек)?", options: ["9.58","9.69","9.72","9.81"], correct: 0 },
+        { q: "Периодов в хоккее НХЛ?", options: ["3","4","2","5"], correct: 0 },
+        { q: "Tour de France?", options: ["Велоспорт","Бег","Лыжи","Автогонки"], correct: 0 },
+        { q: "Золотой мяч — для...", options: ["Футболиста","Тренера","Клуба","Вратаря"], correct: 0 },
+        { q: "Сумо — спорт...", options: ["Японии","Китая","Кореи","Таиланда"], correct: 0 },
+        { q: "Волейбол: очков в партии?", options: ["25","21","15","30"], correct: 0 },
+        { q: "Очков за 1 место в Ф1 (2024)?", options: ["25","20","10","15"], correct: 0 },
+        { q: "Кубок Стэнли —...", options: ["Хоккей","Баскетбол","Бейсбол","Футбол"], correct: 0 }
+      ], hard: [
+        { q: "Первый чемпион мира по шахматам?", options: ["Стеиниц","Капабланка","Алехин","Карпов"], correct: 0 },
+        { q: "Рекорд NHL по голам?", options: ["Гретцки","Хоу","Лемьё","Овечкин"], correct: 0 },
+        { q: "Самый титулованный клуб ЛЧ?", options: ["Реал","Милан","Барселона","Ливерпуль"], correct: 0 },
+        { q: "Крикет: между калитками (ярдов)?", options: ["22","20","24","18"], correct: 0 },
+        { q: "Современный пентатлон — видов?", options: ["5","7","3","10"], correct: 0 },
+        { q: "ЧМ по хоккею 2023 — победитель?", options: ["Финляндия","Канада","Чехия","Швеция"], correct: 0 },
+        { q: "Длина футбольного поля max (м)?", options: ["120","100","90","150"], correct: 0 },
+        { q: "Команд в NBA?", options: ["30","28","32","24"], correct: 0 }
+      ]},
+      english: { easy: [
+        { q: "«Книга» по-английски?", options: ["book","look","cook","hook"], correct: 0 },
+        { q: "«Дом»?", options: ["house","mouse","horse","hose"], correct: 0 },
+        { q: "child → мн. число?", options: ["children","childs","childes","childen"], correct: 0 },
+        { q: "Противоположность big?", options: ["small","tall","long","wide"], correct: 0 },
+        { q: "«Привет»?", options: ["Hello","Goodbye","Thanks","Please"], correct: 0 },
+        { q: "«Красный»?", options: ["red","read","reed","road"], correct: 0 },
+        { q: "I ___ a student.", options: ["am","is","are","be"], correct: 0 },
+        { q: "seven = ?", options: ["7","6","8","5"], correct: 0 }
+      ], medium: [
+        { q: "Past Simple: go → ?", options: ["went","goed","gone","going"], correct: 0 },
+        { q: "«Although» =", options: ["хотя","потому что","если","когда"], correct: 0 },
+        { q: "She ___ to school every day.", options: ["goes","go","going","gone"], correct: 0 },
+        { q: "«environment» =", options: ["окружающая среда","правительство","оборудование","развлечение"], correct: 0 },
+        { q: "borrow =", options: ["взять взаймы","дать взаймы","купить","продать"], correct: 0 },
+        { q: "Present Perfect: I have ___", options: ["done","did","do","doing"], correct: 0 },
+        { q: "«advice» — это...", options: ["совет","новость","устройство","прибор"], correct: 0 },
+        { q: "Синоним happy?", options: ["glad","sad","mad","bad"], correct: 0 }
+      ], hard: [
+        { q: "ubiquitous =", options: ["вездесущий","уникальный","скрытый","редкий"], correct: 0 },
+        { q: "If I ___ rich (subjunctive)", options: ["were","was","am","be"], correct: 0 },
+        { q: "ephemeral ≈", options: ["мимолётный","вечный","твёрдый","громкий"], correct: 0 },
+        { q: "call ___ = отменить", options: ["off","on","up","in"], correct: 0 },
+        { q: "mitigate =", options: ["смягчать","усиливать","игнорировать","разрушать"], correct: 0 },
+        { q: "Neither of them ___ ready.", options: ["is","are","were","be"], correct: 0 },
+        { q: "pragmatic =", options: ["прагматичный","поэтичный","патетичный","панический"], correct: 0 },
+        { q: "in lieu of =", options: ["вместо","вдобавок","вопреки","внутри"], correct: 0 }
+      ]},
+      math: { easy: [
+        { q: "2 + 2 = ?", options: ["4","5","3","22"], correct: 0 },
+        { q: "5 × 6 = ?", options: ["30","25","35","11"], correct: 0 },
+        { q: "100 − 37 = ?", options: ["63","73","53","67"], correct: 0 },
+        { q: "5² = ?", options: ["25","10","15","20"], correct: 0 },
+        { q: "12 ÷ 4 = ?", options: ["3","4","2","6"], correct: 0 },
+        { q: "Минут в часе?", options: ["60","100","24","30"], correct: 0 },
+        { q: "Периметр квадрата 3?", options: ["12","9","6","15"], correct: 0 },
+        { q: "7 + 8 = ?", options: ["15","14","16","17"], correct: 0 }
+      ], medium: [
+        { q: "15% от 200?", options: ["30","25","35","20"], correct: 0 },
+        { q: "√144 = ?", options: ["12","14","11","13"], correct: 0 },
+        { q: "2³ = ?", options: ["8","6","9","4"], correct: 0 },
+        { q: "3/4 + 1/4 = ?", options: ["1","4/8","2/4","1/2"], correct: 0 },
+        { q: "Площадь 5×8?", options: ["40","26","13","80"], correct: 0 },
+        { q: "−5 + 12 = ?", options: ["7","−7","17","−17"], correct: 0 },
+        { q: "Среднее 4,6,8?", options: ["6","5","7","8"], correct: 0 },
+        { q: "Угол в прямоугольном ∆ (не прямой)?", options: ["<90°","90°","180°","360°"], correct: 0 }
+      ], hard: [
+        { q: "log₂(32) = ?", options: ["5","4","6","3"], correct: 0 },
+        { q: "Производная x²?", options: ["2x","x","x²","2"], correct: 0 },
+        { q: "sin 30° = ?", options: ["0.5","1","0","√3/2"], correct: 0 },
+        { q: "x² − 9 = 0 → x = ?", options: ["±3","3","−3","9"], correct: 0 },
+        { q: "5! = ?", options: ["120","25","60","720"], correct: 0 },
+        { q: "Сумма углов треугольника?", options: ["180°","360°","90°","270°"], correct: 0 },
+        { q: "2x + 6 = 14 → x = ?", options: ["4","3","5","8"], correct: 0 },
+        { q: "|−7| + 3 = ?", options: ["10","−4","4","−10"], correct: 0 }
+      ]}
+    };
+
+    const THEMES = [
+      { id: 'geography', label: 'География' },
+      { id: 'history', label: 'История' },
+      { id: 'cinema', label: 'Кино' },
+      { id: 'sport', label: 'Спорт' },
+      { id: 'english', label: 'Английский' },
+      { id: 'math', label: 'Математика' },
+      { id: 'mixed', label: 'Смешанные вопросы' }
+    ];
+    const DIFFICULTIES = [
+      { id: 'easy', label: 'Легко' },
+      { id: 'medium', label: 'Средне' },
+      { id: 'hard', label: 'Сложно' }
+    ];
+    const SHIPS = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
+    const SIZE = 10;
+    const MIN_QUESTIONS = 100;
+    const ALL_CATEGORIES = ['geography', 'history', 'cinema', 'sport', 'english', 'math'];
+
+    let state = {};
+
+    function initSettings() {
+      const themeEl = document.getElementById('theme-options');
+      const diffEl = document.getElementById('difficulty-options');
+      THEMES.forEach((t, i) => {
+        themeEl.innerHTML += `<label><input type="radio" name="theme" value="${t.id}"${i === 0 ? ' checked' : ''}><span>${t.label}</span></label>`;
+      });
+      DIFFICULTIES.forEach((d, i) => {
+        diffEl.innerHTML += `<label><input type="radio" name="difficulty" value="${d.id}"${i === 0 ? ' checked' : ''}><span>${d.label}</span></label>`;
+      });
+      document.getElementById('start-btn').onclick = startGame;
+      document.getElementById('restart-btn').onclick = () => {
+        document.getElementById('win-overlay').classList.remove('open');
+        showScreen('settings');
+      };
+    }
+
+    function showScreen(id) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      document.getElementById(id + '-screen').classList.add('active');
+    }
+
+    function placeShips() {
+      for (let tryAll = 0; tryAll < 200; tryAll++) {
+        const grid = Array(SIZE).fill(null).map(() => Array(SIZE).fill(0));
+        const ships = [];
+        let ok = true;
+        for (const len of SHIPS) {
+          let placed = false;
+          for (let attempts = 0; attempts < 500 && !placed; attempts++) {
+            const horiz = Math.random() < 0.5;
+            const r = Math.floor(Math.random() * (horiz ? SIZE : SIZE - len + 1));
+            const c = Math.floor(Math.random() * (horiz ? SIZE - len + 1 : SIZE));
+            const cells = [];
+            for (let i = 0; i < len; i++) {
+              const nr = horiz ? r : r + i;
+              const nc = horiz ? c + i : c;
+              cells.push([nr, nc]);
+            }
+            if (cells.some(([rr, cc]) => grid[rr][cc])) continue;
+            const touch = cells.some(([rr, cc]) => {
+              for (let dr = -1; dr <= 1; dr++)
+                for (let dc = -1; dc <= 1; dc++) {
+                  const nr = rr + dr, nc = cc + dc;
+                  if (nr >= 0 && nr < SIZE && nc >= 0 && nc < SIZE && grid[nr][nc]) return true;
+                }
+              return false;
+            });
+            if (touch) continue;
+            const id = ships.length;
+            cells.forEach(([rr, cc]) => { grid[rr][cc] = id + 1; });
+            ships.push({ id, len, cells, hits: new Set() });
+            placed = true;
+          }
+          if (!placed) { ok = false; break; }
+        }
+        if (ok && ships.length === SHIPS.length) return { grid, ships };
+      }
+      const grid = Array(SIZE).fill(null).map(() => Array(SIZE).fill(0));
+      const ships = [{ id: 0, len: 1, cells: [[0, 0]], hits: new Set() }];
+      grid[0][0] = 1;
+      return { grid, ships };
+    }
+
+    function shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    function makeOptions(correct, distractors) {
+      const uniq = [String(correct)];
+      for (const d of distractors) {
+        const s = String(d);
+        if (s !== String(correct) && !uniq.includes(s)) uniq.push(s);
+      }
+      let n = 1;
+      while (uniq.length < 4) {
+        const fake = String(+correct + n * 7 - 3);
+        if (!uniq.includes(fake)) uniq.push(fake);
+        n++;
+      }
+      const options = shuffle(uniq.slice(0, 4));
+      return { options, correct: options.indexOf(String(correct)) };
+    }
+
+    function generateMathQuestions(difficulty, count = 150) {
+      const out = [];
+      const seen = new Set();
+      for (let t = 0; t < count * 30 && out.length < count; t++) {
+        let q, ans, distractors;
+        if (difficulty === 'easy') {
+          const a = 2 + Math.floor(Math.random() * 18);
+          const b = 2 + Math.floor(Math.random() * 18);
+          const op = Math.floor(Math.random() * 3);
+          if (op === 0) { q = `${a} + ${b} = ?`; ans = a + b; distractors = [ans + 1, ans - 1, ans + 2]; }
+          else if (op === 1) { q = `${a + b} − ${b} = ?`; ans = a; distractors = [a + 1, a - 1, a + 2]; }
+          else { const m = Math.min(b, 12); q = `${a} × ${m} = ?`; ans = a * m; distractors = [ans + 1, ans - 1, ans + m]; }
+        } else if (difficulty === 'medium') {
+          const kind = Math.floor(Math.random() * 3);
+          if (kind === 0) {
+            const p = [5, 10, 15, 20, 25][Math.floor(Math.random() * 5)];
+            const n = 20 + Math.floor(Math.random() * 180);
+            ans = Math.round(n * p / 100);
+            q = `${p}% от ${n}?`;
+            distractors = [ans + 5, ans - 5, ans + 10];
+          } else if (kind === 1) {
+            const base = 2 + Math.floor(Math.random() * 10);
+            const exp = 2 + Math.floor(Math.random() * 3);
+            ans = Math.pow(base, exp);
+            q = `${base}^${exp} = ?`;
+            distractors = [ans + base, ans - base, base * exp];
+          } else {
+            const a = 3 + Math.floor(Math.random() * 15);
+            const b = 3 + Math.floor(Math.random() * 15);
+            ans = a * b;
+            q = `Площадь прямоугольника ${a}×${b}?`;
+            distractors = [a + b, 2 * (a + b), ans + a];
+          }
+        } else {
+          const kind = Math.floor(Math.random() * 3);
+          if (kind === 0) {
+            const x = 2 + Math.floor(Math.random() * 8);
+            const c = 2 * x + 6;
+            ans = x;
+            q = `2x + 6 = ${c} → x = ?`;
+            distractors = [x + 1, x - 1, x + 2];
+          } else if (kind === 1) {
+            const n = 4 + Math.floor(Math.random() * 4);
+            ans = 1;
+            for (let i = 2; i <= n; i++) ans *= i;
+            q = `${n}! = ?`;
+            distractors = [ans + n, Math.max(1, ans - n), ans + 2];
+          } else {
+            const a = 1 + Math.floor(Math.random() * 12);
+            ans = a;
+            q = `√${a * a} = ?`;
+            distractors = [a + 1, a - 1, a + 2];
+          }
+        }
+        if (seen.has(q)) continue;
+        seen.add(q);
+        const { options, correct } = makeOptions(ans, distractors);
+        if (correct < 0) continue;
+        out.push({ q, options, correct, category: 'math', generated: true });
+      }
+      return out;
+    }
+
+
+    const CAPITALS = [
+      ["Россия","Москва"],["США","Вашингтон"],["Великобритания","Лондон"],["Франция","Париж"],["Германия","Берлин"],
+      ["Италия","Рим"],["Испания","Мадрид"],["Португалия","Лиссабон"],["Греция","Афины"],["Турция","Анкара"],
+      ["Иран","Тегеран"],["Ирак","Багдад"],["Индия","Нью-Дели"],["Китай","Пекин"],["Япония","Токио"],
+      ["Южная Корея","Сеул"],["Вьетнам","Ханой"],["Таиланд","Бангкок"],["Индонезия","Джакарта"],["Малайзия","Куала-Лумпур"],
+      ["Австралия","Канберра"],["Новая Зеландия","Веллингтон"],["Египет","Каир"],["Марокко","Рабат"],["ЮАР","Претория"],
+      ["Нигерия","Абуджа"],["Кения","Найроби"],["Эфиопия","Аддис-Абеба"],["Алжир","Алжир"],["Тунис","Тунис"],
+      ["Мексика","Мехико"],["Аргентина","Буэнос-Айрес"],["Чили","Сантьяго"],["Колумбия","Богота"],["Перу","Лима"],
+      ["Бразилия","Бразилиа"],["Венесуэла","Каракас"],["Куба","Гавана"],["Канада","Оттава"],["США","Вашингтон"],
+      ["Польша","Варшава"],["Чехия","Прага"],["Словакия","Братислава"],["Венгрия","Будапешт"],["Австрия","Вена"],
+      ["Швейцария","Берн"],["Бельгия","Брюссель"],["Нидерланды","Амстердам"],["Дания","Копенгаген"],["Швеция","Стокгольм"],
+      ["Норвегия","Осло"],["Финляндия","Хельсинки"],["Исландия","Рейкьявик"],["Ирландия","Дублин"],["Украина","Киев"],
+      ["Беларусь","Минск"],["Молдова","Кишинёв"],["Румыния","Бухарест"],["Болгария","София"],["Сербия","Белград"],
+      ["Хорватия","Загреб"],["Словения","Любляна"],["Грузия","Тбилиси"],["Армения","Ереван"],["Азербайджан","Баку"],
+      ["Казахстан","Астана"],["Узбекистан","Ташкент"],["Кыргызстан","Бишкек"],["Таджикистан","Душанбе"],["Туркменистан","Ашхабад"],
+      ["Монголия","Улан-Батор"],["Пакистан","Исламабад"],["Бангладеш","Дакка"],["Шри-Ланка","Шри-Джаяварденепура"],["Непал","Катманду"],
+      ["Филиппины","Манила"],["Сингапур","Сингапур"],["Камбоджа","Пномпень"],["Лаос","Вьентьян"],["Мьянма","Нейпьидо"],
+      ["Саудовская Аравия","Эр-Рияд"],["ОАЭ","Абу-Даби"],["Катар","Доха"],["Израиль","Иерусалим"],["Иордания","Амман"],
+      ["Ливан","Бейрут"],["Сирия","Дамаск"],["Афганистан","Кабул"],["Кувейт","Эль-Кувейт"],["Оман","Маскат"],
+      ["Уругвай","Монтевидео"],["Парагвай","Асунсьон"],["Боливия","Сукре"],["Эквадор","Кито"],["Панама","Панама"],
+      ["Коста-Рика","Сан-Хосе"],["Гватемала","Гватемала"],["Гондурас","Тегусигальпа"],["Никарагуа","Манагуа"],["Сальвадор","Сан-Сальвадор"],
+      ["Литва","Вильнюс"],["Латвия","Рига"],["Эстония","Таллин"],["Албания","Тирана"],["Северная Македония","Скопье"],
+      ["Кипр","Никосия"],["Мальта","Валлетта"],["Люксембург","Люксембург"],["Монако","Монако"],["Андорра","Андорра-ла-Велья"]
+    ];
+
+    const CONTINENTS = [
+      ["Россия","Евразия"],["Бразилия","Южная Америка"],["Египет","Африка"],["Австралия","Океания"],
+      ["Канада","Северная Америка"],["Китай","Азия"],["Индия","Азия"],["Норвегия","Европа"],
+      ["Аргентина","Южная Америка"],["Нигерия","Африка"],["Япония","Азия"],["Исландия","Европа"],
+      ["Мексика","Северная Америка"],["Иран","Азия"],["Чили","Южная Америка"],["Кения","Африка"],
+      ["Турция","Евразия"],["Индонезия","Азия"],["Перу","Южная Америка"],["Марокко","Африка"]
+    ];
+
+    const RIVERS = [
+      ["Волга","Россия"],["Дунай","Европа"],["Нил","Африка"],["Амазонка","Южная Америка"],
+      ["Янцзы","Китай"],["Миссисипи","США"],["Ганг","Индия"],["Меконг","Юго-Восточная Азия"],
+      ["Днепр","Украина"],["Темза","Великобритания"],["Сена","Франция"],["Рейн","Европа"]
+    ];
+
+    const EN_WORDS = {
+      easy: [
+        ["dog","собака"],["cat","кошка"],["sun","солнце"],["moon","луна"],["water","вода"],["fire","огонь"],
+        ["food","еда"],["friend","друг"],["school","школа"],["city","город"],["time","время"],["work","работа"],
+        ["book","книга"],["hand","рука"],["eye","глаз"],["day","день"],["night","ночь"],["road","дорога"],
+        ["house","дом"],["tree","дерево"],["bird","птица"],["fish","рыба"],["milk","молоко"],["bread","хлеб"],
+        ["happy","счастливый"],["big","большой"],["small","маленький"],["good","хороший"],["bad","плохой"]
+      ],
+      medium: [
+        ["achieve","достигать"],["believe","верить"],["decision","решение"],["efficient","эффективный"],
+        ["generous","щедрый"],["improve","улучшать"],["knowledge","знание"],["opportunity","возможность"],
+        ["environment","окружающая среда"],["government","правительство"],["experience","опыт"],["important","важный"],
+        ["develop","развивать"],["consider","рассматривать"],["community","сообщество"],["technology","технология"],
+        ["responsible","ответственный"],["challenge","вызов"],["influence","влияние"],["maintain","поддерживать"]
+      ],
+      hard: [
+        ["ambiguous","двусмысленный"],["conscientious","добросовестный"],["ephemeral","мимолётный"],
+        ["meticulous","скрупулёзный"],["ubiquitous","вездесущий"],["voracious","ненасытный"],
+        ["benevolent","доброжелательный"],["capricious","капризный"],["diligent","усердный"],
+        ["eloquent","красноречивый"],["frugal","бережливый"],["gregarious","общительный"],
+        ["hypothesis","гипотеза"],["juxtapose","сопоставлять"],["lucid","ясный"],["obsolete","устаревший"]
+      ]
+    };
+
+    const HISTORY_FACTS = {
+      easy: [
+        ["В каком году началась Великая Отечественная война?","1941",["1939","1945","1914"]],
+        ["Первый человек в космосе?","Гагарин",["Армстронг","Леонов","Алдрин"]],
+        ["Кто написал «Войну и мир»?","Толстой",["Достоевский","Пушкин","Гоголь"]],
+        ["Древняя столица Древней Руси?","Киев",["Москва","Новгород","Владимир"]],
+        ["Год открытия Америки Колумбом?","1492",["1517","1776","1066"]],
+        ["Первый президент США?","Вашингтон",["Линкольн","Джефферсон","Рузвельт"]],
+        ["Пётр I был правителем...","России",["Польши","Швеции","Франции"]],
+        ["ВОВ — война против...","Германии",["Японии","Турции","Швеции"]],
+        ["Кто построил пирамиды в Египте?","Древние египтяне",["Римляне","Греки","Перси"]],
+        ["Год основания Москвы (легенда)?","1147",["988","1240","1380"]],
+        ["Крещение Руси — век?","X",["IX","XI","XII"]],
+        ["Стена в Китае построена для...","защиты",["торговли","орошения","спорта"]],
+        ["Спартак — это...","восстание рабов",["царь","бог","философ"]],
+        ["Древний Рим — континент?","Европа",["Азия","Африка","Америка"]],
+        ["Год окончания ВОВ?","1945",["1941","1939","1950"]],
+        ["Кто изобрёл лампу накаливания?","Эдисон",["Тесла","Ньютон","Галилей"]],
+        ["Первый спутник Земли — год?","1957",["1961","1945","1969"]],
+        ["Битва при Ватерлоо — противник Наполеона?","Веллингтон",["Кутузов","Бисмарк","Линкольн"]],
+        ["Древняя Греция — город богов?","Олимп",["Рим","Спарта","Троя"]],
+        ["Кто был «отцом истории»?","Геродот",["Платон","Сократ","Гомер"]]
+      ],
+      medium: [
+        ["Отмена крепостного права в России?","1861",["1812","1905","1917"]],
+        ["Октябрьская революция?","1917",["1905","1924","1941"]],
+        ["Падение Берлинской стены?","1989",["1991","1975","2001"]],
+        ["Наполеон — император...","Франции",["Италии","Испании","Австрии"]],
+        ["Куликовская битва?","1380",["1240","1612","1812"]],
+        ["Император России при 1812 годе?","Александр I",["Николай I","Пётр I","Павел I"]],
+        ["Вестфальский мир завершил...","30-летнюю войну",["Столетнюю","Семилетнюю","Пелопоннесскую"]],
+        ["Первый император Рима?","Август",["Нерон","Траян","Калигула"]],
+        ["Варфоломеевская ночь?","1572",["1612","1789","1914"]],
+        ["Крымская война — век?","XIX",["XVIII","XX","XVII"]],
+        ["Реформация началась в...","Германии",["Италии","Испании","России"]],
+        ["Мартин Лютер — профессия?","монах",["король","рыцарь","купец"]],
+        ["Столетняя война — между...","Англией и Францией",["Испанией и Португалией","Римом и Карфагеном","Россией и Турцией"]],
+        ["Перестройка — год начала?","1985",["1991","1975","2000"]],
+        ["Распад СССР?","1991",["1989","1993","1985"]],
+        ["Холодная война — века?","XX",["XIX","XXI","XVIII"]],
+        ["Троянская война — источник?","Гомер",["Вергилий","Данте","Шекспир"]],
+        ["Ренессанс зародился в...","Италии",["Франции","Германии","Англии"]],
+        ["Просвещение — век?","XVIII",["XVI","XIX","XVII"]],
+        ["Ялтинская конференция?","1945",["1943","1941","1950"]]
+      ],
+      hard: [
+        ["Вестфальский мир — год?","1648",["1618","1715","1492"]],
+        ["Эмский приказ — год?","1870",["1812","1914","1853"]],
+        ["Тридцатилетняя война началась в...","1618",["1648","1517","1789"]],
+        ["Карл Martel победил арабов при...","Пуатье",["Гастингсе","Ватерлоо","Лепанто"]],
+        ["Версальский договор — после...","Первой мировой",["Второй мировой","Наполеоновских войн","Крымской"]],
+        ["Константинополь пал в...","1453",["1204","1071","1261"]],
+        ["Столетняя война длилась...","116 лет",["100 лет","50 лет","200 лет"]],
+        ["Триполийский союз — против...","Османской империи",["Австро-Венгрии","Пруссии","России"]],
+        ["Пелопоннесская война — участники","Афины и Спарта",["Рим и Карфаген","Персия и Египет","Македония и Фракия"]],
+        ["Реформы Солона — в...","Афинах",["Риме","Спарте","Фивах"]],
+        ["Битва при Гастингсе — год?","1066",["1215","1415","732"]],
+        ["Магна Карта — год?","1215",["1066","1649","1689"]],
+        ["Война Алой и Белой розы — страна?","Англия",["Франция","Испания","Германия"]],
+        ["Пруссия объединила Германию в...","1871",["1815","1918","1648"]],
+        ["Конгресс Вены — после...","Наполеона",["Первой мировой","Французской революции","Крымской"]],
+        ["Саккария — битва при...","Пуатье",["Ватерлоо","Гастингсе","Лепанто"]],
+        ["Жакерия — восстание в...","Франции",["Англии","Италии","Германии"]],
+        ["Нансен — исследователь...","Арктики",["Антарктиды","Африки","Азии"]],
+        ["Троецарствие в Китае — эпоха?","III век",["I век","V век","X век"]],
+        ["Версаль — дворец в...","Франции",["Германии","Италии","Испании"]]
+      ]
+    };
+
+const CINEMA_FACTS = {
+      easy: [
+        ["Кто сыграл Джека в фильме «Титаник»?","Леонардо Ди Каприо",["Брэд Питт","Том Круз","Мэтт Деймон"]],
+        ["Как называется премия Американской киноакадемии?","Оскар",["Золотой глобус","Сезар","Пальма д'Ор"]],
+        ["Из какого фильма фраза «Я вернусь»?","Терминатор",["Хищник","Рокки","Безумный Макс"]],
+        ["Кто снял «Парк юрского периода»?","Стивен Спилберг",["Джордж Лукас","Джеймс Кэмерон","Кристофер Нолан"]],
+        ["Кто говорит «Да пребудет с тобой Сила»?","Оби-Ван Кеноби",["Люк Скайуокер","Йода","Дарт Вейдер"]],
+        ["Главный герой «Гарри Поттера»?","Гарри Поттер",["Рон Уизли","Драко Малфой","Северус Снейп"]],
+        ["«Мстители» — киновселенная...","Marvel",["DC","Звёздные войны","Гарри Поттер"]],
+        ["Злодей в чёрной маске в «Звёздных войнах»?","Дарт Вейдер",["Император Палпатин","Кайло Рен","Боба Фетт"]],
+        ["Мультфильм про рыбку Немо?","В поисках Немо",["Рататуй","Шрек","Моана"]],
+        ["Принцесса Эльза — из мультфильма...","Холодное сердце",["Рапунцель","Русалочка","Мулан"]],
+        ["Главный герой «Матрицы»?","Нео",["Морфеус","Агент Смит","Тринити"]],
+        ["Студия мультфильмов «Король Лев»?","Disney",["Pixar","DreamWorks","Illumination"]],
+        ["Агент 007 в кино — это...","Джеймс Бонд",["Итан Хант","Джейсон Борн","Джон Уик"]],
+        ["Кто озвучил Шрека в оригинале (англ.)?","Майк Майерс",["Эдди Мёрфи","Джастин Тимберлейк","Кэмерон Диаз"]],
+        ["Фильм про зелёную огромную людоеда-орка?","Шрек",["Холодное сердце","Гадкий я","Мадагаскар"]],
+        ["«Ледниковый период» — главный герой-зверь?","Манни (мамонт)",["Сид (ленивец)","Диего (тигр)","Скрат (белка)"]],
+        ["Кто сыграл Железного человека в Marvel?","Роберт Дауни-мл.",["Крис Эванс","Крис Хемсворт","Марк Руффало"]],
+        ["«Аватар» (синие на Пандоре) — режиссёр?","Джеймс Кэмерон",["Питер Джексон","Ридли Скотт","Дени Вильнёв"]],
+        ["Персонаж «Я твой отец»?","Дарт Вейдер",["Люк Скайуокер","Хан Соло","Чубакка"]],
+        ["«Властелин колец» — хоббит-герой?","Фродо",["Арагорн","Гэндальф","Голлум"]],
+        ["Жанр фильма «Унесённые призраками»?","Анимация / фэнтези",["Вестерн","Детектив","Документальный"]],
+        ["«Тачки» — главный гоночный автомобиль?","Молния Маккуин",["Мэтр","Док Хадсон","Салли"]],
+        ["Кто сыграл Человека-паука в фильмах Сэма Рэйми?","Тоби Магуайр",["Эндрю Гарфилд","Том Холланд","Джейк Джилленхол"]],
+        ["«Золушка» — студия Disney?","Да",["Нет, Pixar","Нет, DreamWorks","Нет, Warner"]],
+        ["Фильм «Дом один дома» — главный ребёнок?","Кевин",["Базз","Огги","Немо"]],
+        ["«Красавица и Чудовище» — Чудовище превращается в...","Принца",["Короля","Рыцаря","Волшебника"]],
+        ["Кто сыграл капитана Джека Воробья?","Джонни Депп",["Орландо Блум","Брэд Питт","Том Хэнкс"]],
+        ["«Холодное сердце» — песня «Отпусти и забудь» поёт...","Эльза",["Анна","Олаф","Кристофф"]],
+        ["«Миньоны» — спутники злодея...","Грю",["Мегамозг","Скарлетт","Вектор"]],
+        ["«Красная Шапка» — жанр сказки?","Сказка / фэнтези",["Детектив","Вестерн","Документальный"]],
+        ["«Зверополис» — кролик-полицейский?","Джуди Хоппс",["Ник Уайлд","Мистер Биг","Бонни"]],
+        ["«История игрушек» — ковбой?","Вуди",["Базз Лайтер","Энди","Рекс"]],
+        ["Кто сыграл Халка в «Мстителях»?","Марк Руффало",["Крис Эванс","Крис Хемсворт","Джереми Реннер"]],
+        ["«Аладдин» — джинн озвучил...","Робин Уильямс",["Уилл Смит","Джим Керри","Эдди Мёрфи"]],
+        ["Фильм «Три богатыря» — основа на...","Русских былинах",["Греческих мифах","Скандинавских сагах","Библии"]]
+      ],
+      medium: [
+        ["Оскар за лучшую мужскую роль в «Форрест Гамп» получил...","Том Хэнкс",["Ди Каприо","Брэд Питт","Мэттью Макконахи"]],
+        ["«Криминальное чтиво» снял...","Квентин Тарантино",["Мартин Скорсезе","Стэнли Кубрик","Дэвид Финчер"]],
+        ["Первый полнометражный мультфильм Disney?","Белоснежка и семь гномов",["Пиноккио","Бэмби","Дамбо"]],
+        ["«Властелин колец» снимали в основном в...","Новой Зеландии",["Исландии","Ирландии","Австралии"]],
+        ["«Интерстеллар» — режиссёр?","Кристофер Нолан",["Дени Вильнёв","Ридли Скотт","Спилберг"]],
+        ["«1+1» (фр.) — оригинальное название?","Intouchables",["Amélie","La Haine","Leon"]],
+        ["«Пианист» Роман Поланского — страна производства?","Франция / Польша",["США","Германия","Италия"]],
+        ["«Джокер» (2019) — актёр главной роли?","Хоакин Феникс",["Хит Леджер","Джаред Лето","Джек Николсон"]],
+        ["«Начало» (Inception) — главный герой играет...","Леонардо Ди Каприо",["Том Харди","Киллиан Мёрфи","Майкл Кейн"]],
+        ["«Бойцовский клуб» — режиссёр?","Дэвид Финчер",["Тарантино","Скорсезе","Нолан"]],
+        ["«Сияние» — режиссёр?","Стэнли Кубрик",["Спилберг","Хичкок","Скорсезе"]],
+        ["«Гладиатор» — актёр в роли Максимуса?","Рассел Кроу",["Брэд Питт","Джерард Батлер","Том Хэнкс"]],
+        ["«Тёмный рыцарь» — актёр Джокера?","Хит Леджер",["Джаред Лето","Джек Николсон","Хоакин Феникс"]],
+        ["«Пятый элемент» — режиссёр?","Люк Бессон",["Вильнёв","Бессон","Кэмерон"]],
+        ["«Остров проклятых» — режиссёр?","Мартин Скорсезе",["Спилберг","Нолан","Финчер"]],
+        ["«Ла-Ла Ленд» — жанр?","Мюзикл / романтика",["Ужасы","Военный","Документальный"]],
+        ["«Паразиты» (2019) — режиссёр?","Пон Чжун Хо",["Бон Чан Ук","Ким Ки Дук","Пак Чан Ёк"]],
+        ["«Дюна» (2021) — режиссёр?","Дени Вильнёв",["Кристофер Нолан","Ридли Скотт","Спилберг"]],
+        ["«Челюсти» — режиссёр?","Стивен Спилберг",["Кубрик","Коппола","Скорсезе"]],
+        ["«Крёстный отец» — режиссёр?","Фрэнсис Форд Коппола",["Скорсезе","Спилберг","Тарантино"]],
+        ["«Список Шиндлера» — режиссёр?","Стивен Спилберг",["Кубрик","Скорсезе","Полански"]],
+        ["«Побег из Шоушенка» — основано на...","Рассказе Стивена Кинга",["Романе Толстого","Комиксах Marvel","Библии"]],
+        ["«Зелёная миля» — главный герой-охранник?","Пол Эджкомб",["Джон Коффи","Уильям Уортон","Брэд Дуран"]],
+        ["«Один дома 2» — город, куда попадает Кевин?","Нью-Йорк",["Чикаго","Лос-Анджелес","Майами"]],
+        ["«Гарри Поттер и философский камень» — режиссёр?","Крис Коламбус",["Альфонсо Куарон","Майк Ньюэлл","Дэвид Йейтс"]],
+        ["«Хоббит» — режиссёр трилогии?","Питер Джексон",["Кэмерон","Спилберг","Вильнёв"]],
+        ["«Чёрная пантера» — вселенная?","Marvel",["DC","Star Trek","Готэм"]],
+        ["«Дэдпул» — студия?","Marvel / 20th Century",["DC","Sony только","Netflix"]],
+        ["«Оппенгеймер» (2023) — режиссёр?","Кристофер Нолан",["Спилберг","Скорсезе","Вильнёв"]],
+        ["«Барби» (2023) — главная роль?","Марго Робби",["Райан Гослинг","Эмма Стоун","Скарлетт Йоханссон"]],
+        ["«Everything Everywhere All at Once» — жанр?","Научная фантастика / драма",["Вестерн","Нуар","Ужасы"]],
+        ["«Драйв» — главный герой играет...","Райан Гослинг",["Том Харди","Хавьер Бардем","Брэд Питт"]],
+        ["«Социальная сеть» — про создание...","Facebook",["Twitter","Google","Apple"]],
+        ["«Олдбой» (кор.) — режиссёр?","Пак Чан Ёк",["Пон Чжун Хо","Бон Чан Ук","Ким Ки Дук"]],
+        ["«Амели» — страна?","Франция",["Италия","Испания","Бельгия"]]
+      ],
+      hard: [
+        ["«Седьмая печать» — режиссёр?","Ингмар Бергман",["Феллини","Антониони","Тарковский"]],
+        ["Первый церемониальный «Оскар» — год?","1929",["1939","1945","1915"]],
+        ["«Заводной апельсин» — автор романа?","Энтони Бёрджесс",["Оруэлл","Хаксли","Брэдбери"]],
+        ["Первый платный киносеанс братьев Люмьер — век?","XIX",["XVIII","XX","XXI"]],
+        ["«Сталкер» — по произведению...","Пикник на обочине",["1984","Мы","Обитаемый остров"]],
+        ["«Расёмон» — режиссёр?","Акира Куросава",["Ясудзиро Озу","Кендзи Мидзогути"]],
+        ["Движение «Догма 95» — страна?","Дания",["Швеция","Норвегия","Франция"]],
+        ["«Апокалипсис сегодня» — режиссёр?","Фрэнсис Форд Коппола",["Оливер Стоун","Спилберг","Скорсезе"]],
+        ["«Кроткая» (1990) — режиссёр?","Никита Михалков",["Тарковский","Муртазалиев","Балагов"]],
+        ["«Зеркало» — режиссёр?","Андрей Тарковский",["Сокуров","Михалков","Герман"]],
+        ["«Солярис» (СССР) — режиссёр?","Андрей Тарковский",["Кончаловский","Рогозкин","Лунгин"]],
+        ["«Канны 2019» — «Золотая пальма»?","Паразиты",["Джокер","Больше года","Ирландец"]],
+        ["«8½» — режиссёр?","Федерико Феллини",["Антониони","Росселлини","Висконти"]],
+        ["«Красота по-американски» — режиссёр?","Сэм Мендес",["Скорсезе","Спилберг","Андерсон"]],
+        ["«Таксист» (1976) — режиссёр?","Мартин Скорсезе",["Коппола","Де Пальма","Лукас"]],
+        ["«Славные парни» — режиссёр?","Мартин Скорсезе",["Тарантино","Коппола","Финчер"]],
+        ["«Семь» — режиссёр?","Дэвид Финчер",["Скорсезе","Нолан","Спилберг"]],
+        ["«Фарго» — режиссёры братья...","Коэн",["Вачовски","Андерсон","Нолан"]],
+        ["«Большой Лебовски» — режиссёры...","Коэн",["Тарантино","Скорсезе","Андерсон"]],
+        ["«Догвилль» — режиссёр?","Ларс фон Триер",["Бергман","Виндерс","Куросава"]],
+        ["«Антихрист» — режиссёр?","Ларс фон Триер",["фон Триер","Ханеке","Бунюэль"]],
+        ["«Пианистка» (La Pianiste) — режиссёр?","Михаэль Ханеке",["Полански","Антониони","Куросава"]],
+        ["«Корпус Христа» — режиссёр?","Михаэль Ханеке",["Бергман","Кубрик","Тарковский"]],
+        ["«Двухсотлетний человек» — режиссёр?","Франсуа Озон",["Бессон","Куросава","Андерсон"]],
+        ["«Аризонская мечта» — режиссёр?","Дэвид Линч",["Кубрик","Финчер","Кроненберг"]],
+        ["«Синий бархат» — режиссёр?","Дэвид Линч",["Тарантино","Скорсезе","Коппола"]],
+        ["«Мулхолланд Драйв» — режиссёр?","Дэвид Линч",["Нолан","Вильнёв","Араки"]],
+        ["«Подземка» (1996) — режиссёр?","Люк Бессон",["Каро","Жеюн","Ван Сант"]],
+        ["«Амор» (2012) — режиссёр?","Михаэль Ханеке",["Куросава","Бергман","Озу"]],
+        ["«Три цвета: Красный» — режиссёр?","Кшиштоф Киесловский",["Вайда","Ханеке","Жулавский"]],
+        ["«Декалог» — режиссёр?","Кшиштоф Киесловский",["Вайда","Михалков","Ханеке"]],
+        ["«Иди и смотри» — режиссёр?","Элем Климов",["Тарковский","Сокуров","Герман"]],
+        ["«Схватка» (1995) — режиссёр?","Майкл Манн",["Манн","Скорсезе","Де Пальма"]],
+        ["«Серьёзный человек» — режиссёры...","Коэн",["Андерсон","Тарантино","Линч"]],
+        ["«Реквием по мечте» — режиссёр?","Даррен Аронофски",["Нолан","Финчер","Скорсезе"]]
+      ]
+    };
+
+    const CINEMA_EXTRA = {
+      easy: [
+        ["Фраза «Король мира!» — из мультфильма...","Король Лев",["Аладдин","Мулан","Шрек"]],
+        ["«Кто ты такой?» — Нео отвечает в...","Матрице",["Терминаторе","Хищнике","Бегущем по лезвию"]],
+        ["Премия «Золотой глобус» — страна вручения?","США",["Франция","Италия","Великобритания"]],
+        ["Жанр фильма «Чужой»?","Научная фантастика / ужасы",["Комедия","Вестерн","Мелодрама"]],
+        ["«Звёздные войны» — создатель?","Джордж Лукас",["Спилберг","Кэмерон","Скотт"]]
+      ],
+      medium: [
+        ["«Оскар» за лучший фильм 2020 (вручение 2020)?","Паразиты",["1917","Джокер","Ford v Ferrari"]],
+        ["«Бёрдмэн» — техника съёмки имитирует...","Один дубль / театр",["Документалистику","Анимацию","Вестерн"]],
+        ["«Рим» (2018) — режиссёр?","Альфонсо Куарон",["Иньярриту","Дель Торо","Кодру"]]
+      ],
+      hard: [
+        ["«Палме d'Or» вручают на...","Каннском фестивале",["Венеции","Берлинале","Оскаре"]],
+        ["Нео-нуар «Китайский квартал» — режиссёр?","Роман Полански",["Коппола","Скорсезе","Алтман"]]
+      ]
+    };
+
+    const SPORT_FACTS = {
+      easy: [
+        ["Сколько игроков у одной футбольной команды на поле?","11",["9","10","12"]],
+        ["Турнир «Уимблдон» — вид спорта?","Теннис",["Гольф","Крикет","Бадминтон"]],
+        ["В каком виде спорта используется шайба?","Хоккей",["Футбол","Баскетбол","Водное поло"]],
+        ["Пеле называют «Королём»...","Футбола",["Тенниса","Бокса","Баскетбола"]],
+        ["Красная карточка в футболе означает...","Удаление с поля",["Предупреждение","Пенальти","Аут"]],
+        ["Олимпийские кольца — сколько цветов?","5",["4","6","7"]],
+        ["Марафонская дистанция примерно...","42 км",["21 км","10 км","100 км"]],
+        ["ЧМ по футболу 2018 проходил в...","России",["Бразилии","Катаре","Германии"]],
+        ["В шахматах фигура ходит только по диагонали?","Слон",["Ладья","Конь","Король"]],
+        ["Баскетбол NBA — страна лиги?","США",["Испания","Китай","Россия"]],
+        ["Волейбол: выигрыш сета обычно до...","25 очков",["21","15","30"]],
+        ["Олимпиада 2024 — хост-город?","Париж",["Токио","Лос-Анджелес","Милан"]],
+        ["Формула 1 — тип транспорта?","Автогонки",["Мотогонки","Велогонки","Ралли"]],
+        ["«Супербоул» — вид спорта?","Американский футбол",["Регби","Бейсбол","Крикет"]],
+        ["Плавание в бассейне — стиль «баттерфляй»?","Плавание",["Прыжки в воду","Синхрон","Водное поло"]],
+        ["Хоккей с мячом (не шайба) популярен в...","России / Скандинавии",["Бразилии","Индии","Австралии"]],
+        ["Кубок УЕФА — вид спорта?","Футбол",["Хоккей","Теннис","Регби"]],
+        ["«Роланд Гаррос» — покрытие корта?","Грунт",["Трава","Хард","Ковёр"]],
+        ["Бокс: победа нокаутом — соперник...","Не может продолжать",["Сдался словами","Получил 3 предупреждения","Ушёл с ринга по таймеру"]],
+        ["Гандбол — играют руками или ногами?","Руками",["Только ногами","Только головой","Ракеткой"]],
+        ["Серия «Мастерс» — вид спорта?","Гольф",["Теннис","Крикет","Боулинг"]],
+        ["«Тур де Франс» — вид спорта?","Велоспорт",["Лыжи","Бег","Плавание"]],
+        ["Сумо — национальный спорт...","Японии",["Китая","Кореи","Монголии"]],
+        ["Биатлон сочетает лыжи и...","Стрельбу",["Плавание","Велосипед","Борьбу"]],
+        ["Крикет популярен прежде всего в...","Индии и Великобритании",["Бразилии","Канаде","Норвегии"]],
+        ["НХЛ — лига какого спорта?","Хоккей",["Баскетбол","Бейсбол","Футбол"]],
+        ["«Золотой мяч» FIFA — награда для...","Футболиста",["Тренера","Клуба","Судьи"]],
+        ["Теннис: «эйс» — это...","Подача навылет",["Ошибка","Сет","Двойной удар"]],
+        ["Футбол: пенальти бьют с отметки...","11 метров",["9 метров","15 метров","С центра поля"]],
+        ["Баскетбол: бросок за трёхочковой линией даёт...","3 очка",["2","1","4"]],
+        ["Лыжные гонки на Олимпиаде — сезон?","Зима",["Лето","Весна","Осень"]],
+        ["Фигурное катание — Олимпийский вид?","Да",["Нет","Только летние","Только юноши"]],
+        ["Регби: попытка (try) даёт очки?","5",["3","7","2"]],
+        ["Атлетика: эстафета 4×100 — вид?","Бег",["Прыжки","Метание","Ходьба"]],
+        ["«Лига чемпионов» — организатор?","УЕФА",["ФИФА","НХЛ","НБА"]]
+      ],
+      medium: [
+        ["Рекорд Усэйна Болта на 100 м — примерно...","9,58 сек",["9,69","10,10","9,72"]],
+        ["Периодов в матче НХЛ (основное время)?","3",["2","4","5"]],
+        ["«Золотой мяч» вручает...","FIFA / France Football",["УЕФА","НХЛ","МОК"]],
+        ["Очки за победу в гонке Ф1 (макс.)?","25",["20","10","15"]],
+        ["Кубок Стэнли — трофей...","НХЛ",["НБА","МЛБ","УЕФА"]],
+        ["«Роланд Гаррос» — турнир серии...","Большого шлема",["Мастерс","ATP 500","Челленджер"]],
+        ["«Суперкубок УЕФА» — между...","Победителями ЛЧ и Лиги Европы",["Сборными","Клубами второго дивизиона","Юношами"]],
+        ["«Драфт» в НБА — это...","Распределение новичков",["Финал плей-офф","Межсезонье","Товарищеский матч"]],
+        ["«Офсайд» в футболе — положение...","Вне игры",["Угловой","Аут","Пенальти"]],
+        ["«Корнер» в футболе — это...","Угловой удар",["Штрафной","Пенальти","Свободный"]],
+        ["Теннис: «брейк» — выиграть гейм на подаче...","Соперника",["Себя","Судьи","Партнёра"]],
+        ["Баскетбол: «тройной-дабл» — статистика по...","Очкам, подборам, передачам",["Только очкам","Только блокам","Только фолам"]],
+        ["Хоккей: буллит — ситуация...","Один на один с вратарём",["Удаление","Офсайд","Вбрасывание"]],
+        ["Волейбол: либеро — игрок...","Защитный специалист",["Нападающий","Связующий","Тренер"]],
+        ["Бокс: весовая категория «тяжёлый» до...","Неограничен / 91+ кг",["До 60 кг","До 75 кг","До 52 кг"]],
+        ["«Индианаполис 500» — вид спорта?","Автогонки",["Велогонки","Мотогонки","Ралли"]],
+        ["«Монблан» — восхождение относится к...","Альпинизму",["Плаванию","Футболу","Гольфу"]],
+        ["«Кентукки-дерби» — скачки на...","Лошадях",["Верблюдах","Собаках","Авто"]],
+        ["«Серия А» — футбольная лига...","Италии",["Испании","Англии","Германии"]],
+        ["«Бундеслига» — страна?","Германия",["Франция","Португалия","Нидерланды"]],
+        ["«Премьер-лига» — страна?","Англия",["США","Россия","Бразилия"]],
+        ["«Ла Лига» — страна?","Испания",["Италия","Аргентина","Мексика"]],
+        ["«НБА» — вид спорта?","Баскетбол",["Хоккей","Бейсбол","Футбол"]],
+        ["«МЛБ» — вид спорта?","Бейсбол",["Крикет","Софтбол","Хоккей"]],
+        ["«АТП» — ассоциация...","Теннисистов-профессионалов",["Футболистов","Гольфистов","Боксёров"]],
+        ["«WTA» — женский...","Теннис",["Футбол","Волейбол","Гандбол"]],
+        ["«IOC» — организация...","Олимпийского движения",["ФИФА","НХЛ","УЕФА"]],
+        ["«VAR» в футболе — помощь...","Видеоповторов",["Вратаря","Капитана","Врача"]],
+        ["«КМС» в СССР — спортивный...","Разряд",["Трофей","Клуб","Стадион"]],
+        ["«Триатлон» — дисциплины?","Плавание, вело, бег",["Лыжи, стрельба","Гребля","Бокс, бег"]],
+        ["«Пятиборье» — олимпийское, включает...","5 видов",["3","7","10"]],
+        ["«Кёрлинг» — снаряд на льду?","Камень",["Шайба","Клюшка","Коньк"]],
+        ["«Бобслей» — сезон?","Зима",["Лето","Весна","Круглый год"]],
+        ["«Фехтование» — оружие?","Рапира / сабля / шпага",["Лук","Копьё","Пистолет"]],
+        ["«Дзюдо» — страна происхождения?","Япония",["Корея","Китай","Бразилия"]]
+      ],
+      hard: [
+        ["Первый официальный чемпион мира по шахматам?","Вильгельм Стейниц",["Капабланка","Алехин","Карпов"]],
+        ["Рекорд НХЛ по голам за карьеру —...","Уэйн Гретцки",["Горди Хоу","Марио Лемьё","Александр Овечкин"]],
+        ["Самый титулованный клуб Лиги чемпионов?","Реал Мадрид",["Милан","Барселона","Ливерпуль"]],
+        ["«Калчо» — исторический футбол в...","Италии",["Англии","Бразилии","Мексике"]],
+        ["«Асбестос» — прозвище фанатов...","Сборной Англии (хореография)",["Бразилии","Аргентины","Италии"]],
+        ["«Эврика» — знаменитый сейв вратаря...","Лев Яшин / вратари СССР",["Буффон","Касильяс","Нойер"]],
+        ["«Хет-трик» в футболе — за матч...","3 гола одного игрока",["2 гола","4 паса","3 сейва"]],
+        ["«Гол Сезона» FIFA — награда за...","Красивый гол",["Сейв","Фол","Удаление"]],
+        ["«Серебряный мяч» — награда для...","Молодого таланта",["Тренера","Вратаря","Судьи"]],
+        ["«Копа Америка» — турнир сборных...","Южной Америки",["Европы","Азии","Африки"]],
+        ["«Кубок Африки» — футбол, организатор...","КАФ",["УЕФА","КОНМЕБОЛ","АФК"]],
+        ["«Регби-7» на Олимпиаде — команда по...","7 игроков",["11","15","5"]],
+        ["«Крикет: тест» — длительность до...","5 дней",["90 минут","1 день","3 часа"]],
+        ["«Снукер» — вид...","Бильярда",["Дартса","Боулинга","Гольфа"]],
+        ["«Пауэрлифтинг» — дисциплины?","Присед, жим, тяга",["Бег, прыжки","Плавание","Велогонка"]],
+        ["«Водное поло» — игроков в бассейне (команда)?","7",["6","11","5"]],
+        ["«Гребля на байдарках» — олимпийская?","Да",["Нет","Только зимняя","Только юниоры"]],
+        ["«Современное пятиборье» — основано...","Пьером де Кубертеном",["ФИФА","НХЛ","МОК в 2000"]],
+        ["«Хет-трик» в крикете — три...","Удара / события",["Мяча","Судей","Игроков"]],
+        ["«Ломбардия» — классика...","Велоспорта",["Тенниса","Гольфа","Лыж"]],
+        ["«Тур де Франс» — жёлтая майка — лидер...","Гонки",["Гор","Спринта","Молодёжи"]],
+        ["«Уимблдон» — единственный БШ на...","Траве",["Грунте","Харде","Парке"]],
+        ["«ФИФА» основана в...","1904",["1863","1950","1920"]],
+        ["«МОК» основан в...","1894",["1904","1916","2000"]],
+        ["«Неймар» — национальность?","Бразилия",["Аргентина","Португалия","Испания"]],
+        ["«Месси» выиграл ЧМ-2022 со сборной...","Аргентины",["Испании","Бразилии","Франции"]],
+        ["«Зидан» — финал ЧМ-2006 известен...","Ударом головой",["Голом с пенальти","Сейвом","Удалением соперника"]],
+        ["«Бекхэм» знаменит...","Подачами со стандартов",["Вратарской позицией","Тренерством","Боксом"]],
+        ["«Федерер» — страна?","Швейцария",["Австрия","Германия","США"]],
+        ["«Надаль» — король...","Грунта",["Травы","Харда","Льда"]],
+        ["«Джокович» — рекорд по...","Титулам Большого шлема (муж.)",["Голам в НХЛ","Очкам в НБА","Шайбам"]],
+        ["«Шогун» — бойцы...","MMA / единоборства",["Фигурного катания","Кёрлинга","Гольфа"]],
+        ["«UFC» — вид...","ММА",["Бокса","Карате олимпийского","Фехтования"]],
+        ["«Wimbledon» впервые — век?","XIX",["XVIII","XXI","XX"]],
+        ["«Олимпиада 1980» — город?","Москва",["Сочи","Ленинград","Киев"]]
+      ]
+    };
+
+    const SPORT_EXTRA = {
+      easy: [
+        ["Футбол: жёлтая карточка — это...","Предупреждение",["Удаление","Гол","Офсайд"]],
+        ["Баскетбол: нарушение «фол» — штраф...","Свободные броски / владение",["Удаление","Пенальти","Аут"]]
+      ],
+      medium: [
+        ["«Лига Европы» — уровень ниже...","Лиги чемпионов",["Чемпионшипа","Сборных","НХЛ"]]
+      ],
+      hard: [
+        ["«Салах» известен как игрок сборной...","Египта",["Марокко","Нигерии","Алжира"]]
+      ]
+    };
+
+    const HISTORY_YEARS = [
+      [1812,"Отечественная война 1812"],[1917,"Октябрьская революция"],[1945,"Окончание ВОВ"],
+      [1961,"Первый полёт Гагарина"],[1989,"Падение Берлинской стены"],[1492,"Открытие Америки"],
+      [1861,"Отмена крепостного права"],[1380,"Куликовская битва"],[988,"Крещение Руси"],
+      [1066,"Битва при Гастингсе"],[1789,"Французская революция"],[1453,"Падение Константинополя"],
+      [1648,"Вестфальский мир"],[1776,"Декларация независимости США"],[1914,"Начало Первой мировой"],
+      [1939,"Начало Второй мировой"],[1991,"Распад СССР"],[1618,"Начало 30-летней войны"],
+      [1215,"Магна Карта"],[1870,"Провозглашение Германской империи"],[1941,"Начало ВОВ в СССР"]
+    ];
+
+const QUALITY_BANNED_WORDS = [
+      'четное', 'нечетное', 'нечётное', 'чётное',
+      'больше', 'меньше', 'десятилетие',
+      'номер', '№', 'вычисли', 'сколько будет'
+    ];
+    const QUALITY_CHECK_THEMES = ['sport', 'cinema', 'history', 'geography', 'english'];
+
+    function isQuestionQualityValid(questionText, category) {
+      if (category === 'math') return true;
+      if (!QUALITY_CHECK_THEMES.includes(category)) return true;
+      const lower = String(questionText).toLowerCase();
+      return !QUALITY_BANNED_WORDS.some(word => lower.includes(word));
+    }
+
+    /** Возвращает вопросы, не прошедшие проверку качества для своей темы */
+    function findLowQualityQuestions(questions) {
+      return questions.filter(q => !isQuestionQualityValid(q.q, q.category));
+    }
+
+    function factToQuestion(item, category) {
+      const [q, ans, wrong] = item;
+      if (!isQuestionQualityValid(q, category)) return null;
+      const options = shuffle([ans, ...wrong.slice(0, 3)]);
+      return { q, options, correct: options.indexOf(ans), generated: true };
+    }
+
+    function factsFromPool(pool, category, limit) {
+      const out = [];
+      const seen = new Set();
+      for (const item of shuffle([...pool])) {
+        if (out.length >= limit) break;
+        const raw = factToQuestion(item, category);
+        if (!raw || seen.has(raw.q)) continue;
+        seen.add(raw.q);
+        out.push(raw);
+      }
+      return out;
+    }
+
+    function getFactsPool(category, difficulty, includeAllLevels) {
+      const pools = { cinema: CINEMA_FACTS, sport: SPORT_FACTS, history: HISTORY_FACTS };
+      const extra = { cinema: CINEMA_EXTRA, sport: SPORT_EXTRA };
+      if (!pools[category]) return [];
+      if (includeAllLevels) {
+        const all = [
+          ...(pools[category].easy || []),
+          ...(pools[category].medium || []),
+          ...(pools[category].hard || [])
+        ];
+        if (extra[category]) {
+          all.push(...(extra[category].easy || []), ...(extra[category].medium || []), ...(extra[category].hard || []));
+        }
+        return all;
+      }
+      return [
+        ...(pools[category][difficulty] || []),
+        ...((extra[category] && extra[category][difficulty]) || [])
+      ];
+    }
+
+    function tryAddQuestion(bank, raw, category, uid) {
+      if (!raw || !isQuestionQualityValid(raw.q, category)) return false;
+      if (bank.some(x => x.q === raw.q && x.category === category)) return false;
+      bank.push(tagQuestion(raw, category, uid));
+      return true;
+    }
+
+    function tagQuestion(q, category, uid) {
+      return {
+        q: q.q, options: q.options, correct: q.correct,
+        category, uid, used: false, generated: !!q.generated
+      };
+    }
+
+    function collectStatic(category, difficulty) {
+      const list = (QUESTIONS[category] && QUESTIONS[category][difficulty]) || [];
+      return list
+        .filter(q => isQuestionQualityValid(q.q, category))
+        .map((q, i) => tagQuestion(q, category, `${category}:s:${i}:${q.q}`));
+    }
+
+    function uniqueByText(bank) {
+      const seen = new Set();
+      return bank.filter(q => {
+        const key = q.category + '::' + q.q;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+
+    function factsToQuestions(facts, category) {
+      return facts.map(([q, ans, wrong], i) => {
+        const options = shuffle([ans, ...wrong.slice(0, 3)]);
+        return {
+          q, options, correct: options.indexOf(ans), category, generated: true,
+          uid: `${category}:f:${i}:${q}`
+        };
+      });
+    }
+
+    function generateGeographyBatch(difficulty, limit) {
+      const out = [];
+      const seen = new Set();
+      const caps = CAPITALS;
+      const allCaps = caps.map(c => c[1]);
+
+      for (const [country, cap] of caps) {
+        if (out.length >= limit) break;
+        const q1 = `Столица ${country}?`;
+        if (!seen.has(q1) && isQuestionQualityValid(q1, 'geography')) {
+          seen.add(q1);
+          const w = shuffle(allCaps.filter(x => x !== cap)).slice(0, 3);
+          const options = shuffle([cap, ...w]);
+          out.push({ q: q1, options, correct: options.indexOf(cap), generated: true });
+        }
+        const q2 = `${cap} — столица какой страны?`;
+        if (!seen.has(q2) && isQuestionQualityValid(q2, 'geography')) {
+          seen.add(q2);
+          const countries = caps.map(c => c[0]);
+          const w = shuffle(countries.filter(x => x !== country)).slice(0, 3);
+          const options = shuffle([country, ...w]);
+          out.push({ q: q2, options, correct: options.indexOf(country), generated: true });
+        }
+      }
+
+      for (const [country, continent] of CONTINENTS) {
+        if (out.length >= limit) break;
+        const q = `На каком материке (части света) находится ${country}?`;
+        if (seen.has(q)) continue;
+        seen.add(q);
+        const conts = [...new Set(CONTINENTS.map(c => c[1]))];
+        const w = shuffle(conts.filter(x => x !== continent)).slice(0, 3);
+        const options = shuffle([continent, ...w]);
+        out.push({ q, options, correct: options.indexOf(continent), generated: true });
+      }
+
+      for (const [river, region] of RIVERS) {
+        if (out.length >= limit) break;
+        const q = `Река ${river} связана с регионом:`;
+        if (seen.has(q)) continue;
+        seen.add(q);
+        const regs = RIVERS.map(r => r[1]);
+        const w = shuffle(regs.filter(x => x !== region)).slice(0, 3);
+        const options = shuffle([region, ...w]);
+        out.push({ q, options, correct: options.indexOf(region), generated: true });
+      }
+
+      if (difficulty === 'hard') {
+        for (let i = 0; i < caps.length && out.length < limit; i++) {
+          const [c1, cap1] = caps[i];
+          const [c2] = caps[(i + 17) % caps.length];
+          const q = `Какая пара «страна — столица» верна?`;
+          if (seen.has(q + i)) continue;
+          seen.add(q + i);
+          const wrongPairs = shuffle(caps.filter(c => c[0] !== c1).map(c => `${c[0]} — ${c[1]}`)).slice(0, 2);
+          const correct = `${c1} — ${cap1}`;
+          const fake = `${c2} — ${caps.find(c => c[0] === c2)[1]}`;
+          const options = shuffle([correct, fake, ...wrongPairs].slice(0, 4));
+          out.push({ q, options, correct: options.indexOf(correct), generated: true });
+        }
+      }
+
+      return out.slice(0, limit);
+    }
+
+    function generateHistoryBatch(difficulty, limit) {
+      const pool = [...(HISTORY_FACTS[difficulty] || HISTORY_FACTS.easy)];
+      for (const [year, event] of HISTORY_YEARS) {
+        const wrong = shuffle(HISTORY_YEARS.filter(y => y[0] !== year).map(y => String(y[0]))).slice(0, 3);
+        pool.push([`В каком году: ${event}?`, String(year), wrong]);
+      }
+      for (let i = 0; i < HISTORY_YEARS.length; i++) {
+        for (let j = i + 1; j < HISTORY_YEARS.length; j++) {
+          const [y1, e1] = HISTORY_YEARS[i];
+          const [y2, e2] = HISTORY_YEARS[j];
+          const earlier = y1 < y2 ? e1 : e2;
+          const later = y1 < y2 ? e2 : e1;
+          const third = HISTORY_YEARS[(i + j + 3) % HISTORY_YEARS.length][1];
+          pool.push([`Что из перечисленного произошло раньше: ${e1} или ${e2}?`, earlier, [later, third, HISTORY_YEARS[(i + j + 5) % HISTORY_YEARS.length][1]]]);
+        }
+      }
+      return factsFromPool(pool, 'history', limit);
+    }
+
+
+    function generateEnglishBatch(difficulty, limit) {
+      const words = EN_WORDS[difficulty] || EN_WORDS.easy;
+      const pool = [];
+      for (const [en, ru] of words) {
+        pool.push([`Перевод: «${en}»`, ru, words.map(w => w[1]).filter(x => x !== ru)]);
+        pool.push([`Как по-английски «${ru}»?`, en, words.map(w => w[0]).filter(x => x !== en)]);
+      }
+      return factsFromPool(pool, 'english', limit);
+    }
+
+    function generateMathBatch(difficulty, limit) {
+      return generateMathQuestions(difficulty, limit);
+    }
+
+    function generateForCategory(category, difficulty, limit) {
+      switch (category) {
+        case 'geography': return generateGeographyBatch(difficulty, limit);
+        case 'history': return generateHistoryBatch(difficulty, limit);
+        case 'cinema': return generateCinemaBatch(difficulty, limit);
+        case 'sport': return generateSportBatch(difficulty, limit);
+        case 'english': return generateEnglishBatch(difficulty, limit);
+        case 'math': return generateMathBatch(difficulty, limit);
+        default: return generateMathBatch(difficulty, limit);
+      }
+    }
+
+    function generateCinemaBatch(difficulty, limit) {
+      return factsFromPool(getFactsPool('cinema', difficulty, false), 'cinema', limit);
+    }
+
+    function generateSportBatch(difficulty, limit) {
+      return factsFromPool(getFactsPool('sport', difficulty, false), 'sport', limit);
+    }
+
+    function generateThematicReserve(category, difficulty, count) {
+      if (category === 'math') {
+        return generateMathQuestions(difficulty, count).filter(q =>
+          isQuestionQualityValid(q.q, 'math')
+        );
+      }
+      return factsFromPool(getFactsPool(category, difficulty, true), category, count);
+    }
+
+    function fillBankToMinimum(bank, category, difficulty) {
+      let safety = 0;
+      let stale = 0;
+      const catForFill = category === 'mixed' ? null : category;
+      while (bank.length < MIN_QUESTIONS && safety < 20000) {
+        safety++;
+        const before = bank.length;
+        const cat = catForFill || ALL_CATEGORIES[safety % ALL_CATEGORIES.length];
+        let batch;
+        if (stale > 8) {
+          batch = generateThematicReserve(cat, difficulty, MIN_QUESTIONS - bank.length + 20);
+          stale = 0;
+        } else {
+          batch = generateForCategory(cat, difficulty, MIN_QUESTIONS - bank.length + 25);
+        }
+        for (const raw of batch) {
+          if (bank.length >= MIN_QUESTIONS) break;
+          tryAddQuestion(bank, raw, cat, `${cat}:g:${bank.length}:${safety}:${raw.q}`);
+        }
+        stale = bank.length === before ? stale + 1 : 0;
+      }
+      return bank;
+    }
+
+    function buildBankForCategory(category, difficulty) {
+      let bank = uniqueByText([
+        ...collectStatic(category, difficulty),
+        ...generateForCategory(category, difficulty, MIN_QUESTIONS + 30).map((q, i) =>
+          tagQuestion(q, category, `${category}:gen:${i}:${q.q}`)
+        )
+      ]);
+      bank = fillBankToMinimum(bank, category, difficulty);
+      if (bank.length < MIN_QUESTIONS) {
+        const extra = generateThematicReserve(category, difficulty, MIN_QUESTIONS - bank.length + 15);
+        for (const raw of extra) {
+        tryAddQuestion(bank, raw, category, `${category}:res:${bank.length}:${raw.q}`);
+      }
+      }
+      return fillBankToMinimum(bank, category, difficulty);
+    }
+
+    function buildMixedBank(difficulty) {
+      const perCat = Math.ceil(MIN_QUESTIONS / ALL_CATEGORIES.length) + 2;
+      let bank = [];
+      for (const cat of ALL_CATEGORIES) {
+        const part = buildBankForCategory(cat, difficulty);
+        shuffle(part);
+        bank.push(...part.slice(0, perCat));
+      }
+      bank = uniqueByText(bank);
+      return fillBankToMinimum(bank, 'mixed', difficulty);
+    }
+
+    function prepareGameQuestions(theme, difficulty) {
+      let effectiveTheme = theme;
+      let bankWarning = null;
+      let questions;
+
+      if (theme === 'mixed') {
+        questions = buildMixedBank(difficulty);
+      } else {
+        const primary = buildBankForCategory(theme, difficulty);
+        const primaryCount = primary.length;
+        if (primaryCount < MIN_QUESTIONS) {
+          const themeLabel = THEMES.find(t => t.id === theme).label;
+          const diffLabel = DIFFICULTIES.find(d => d.id === difficulty).label;
+          bankWarning =
+            `⚠️ В теме «${themeLabel}» (${diffLabel}) только ${primaryCount} вопросов (нужно ${MIN_QUESTIONS}). ` +
+            `Подключён смешанный банк той же сложности.`;
+          questions = buildMixedBank(difficulty);
+          effectiveTheme = 'mixed';
+        } else {
+          questions = primary;
+        }
+      }
+
+      questions = fillBankToMinimum(uniqueByText(questions), effectiveTheme, difficulty);
+      return { questions, cycle: 1, bankWarning, effectiveTheme };
+    }
+
+    function topUpQuestionBank(count) {
+      const cat = state.effectiveTheme === 'mixed'
+        ? ALL_CATEGORIES[Math.floor(Math.random() * ALL_CATEGORIES.length)]
+        : state.theme;
+      const batch = generateForCategory(cat, state.difficulty, count);
+      for (const raw of batch) {
+        const tq = tagQuestion(raw, cat, `${cat}:live:${state.questions.length}:${raw.q}`);
+        if (!state.questions.some(x => x.q === tq.q && x.category === tq.category)) {
+          state.questions.push(tq);
+        }
+      }
+    }
+
+    function initQuestionCycle(theme, difficulty) {
+      return prepareGameQuestions(theme, difficulty);
+    }
+    function resetQuestionCycle() {
+      state.questions.forEach(q => { q.used = false; });
+      shuffle(state.questions);
+      state.questionCycle++;
+      document.getElementById('question-cycle').textContent = state.questionCycle;
+      document.getElementById('cycle-stat').style.display = state.questionCycle > 1 ? '' : 'none';
+    }
+
+    function pickNextQuestion() {
+      let available = state.questions.filter(q => !q.used);
+      if (!available.length) {
+        resetQuestionCycle();
+        available = state.questions.filter(q => !q.used);
+      }
+      if (!available.length) {
+        topUpQuestionBank(25);
+        available = state.questions.filter(q => !q.used);
+      }
+      const q = available[Math.floor(Math.random() * available.length)];
+      q.used = true;
+      return q;
+    }
+
+    function countOpenCells() {
+      let n = 0;
+      for (let r = 0; r < SIZE; r++)
+        for (let c = 0; c < SIZE; c++)
+          if (!state.shots[r][c]) n++;
+      return n;
+    }
+
+    function startGame() {
+      const theme = document.querySelector('input[name="theme"]:checked').value;
+      const difficulty = document.querySelector('input[name="difficulty"]:checked').value;
+      const { grid, ships } = placeShips();
+      const themeLabel = THEMES.find(t => t.id === theme).label;
+      const diffLabel = DIFFICULTIES.find(d => d.id === difficulty).label;
+
+      const { questions, cycle, bankWarning, effectiveTheme } = initQuestionCycle(theme, difficulty);
+
+      state = {
+        theme, difficulty, effectiveTheme, grid, ships,
+        questions,
+        questionCycle: cycle,
+        bankWarning,
+        pendingCell: null,
+        moves: 0,
+        correct: 0,
+        wrong: 0,
+        shots: Array(SIZE).fill(null).map(() => Array(SIZE).fill(null))
+      };
+
+      const warnEl = document.getElementById('bank-warning');
+      if (bankWarning) {
+        warnEl.textContent = bankWarning;
+        warnEl.style.display = 'block';
+      } else {
+        warnEl.style.display = 'none';
+      }
+
+      document.getElementById('question-cycle').textContent = cycle;
+      document.getElementById('cycle-stat').style.display = 'none';
+      const bankNote = questions.length >= MIN_QUESTIONS
+        ? `в банке: ${questions.length}`
+        : `в банке: ${questions.length} (добор до ${MIN_QUESTIONS})`;
+      document.getElementById('game-meta').textContent =
+        `${themeLabel} · ${diffLabel} · ${bankNote}`;
+      updateStats();
+      renderBoard();
+      showScreen('game');
+    }
+
+    function renderBoard() {
+      const board = document.getElementById('board');
+      board.innerHTML = '';
+      const cols = document.getElementById('col-labels');
+      cols.innerHTML = '<span class="corner"></span>';
+      for (let c = 0; c < SIZE; c++) cols.innerHTML += `<span>${c + 1}</span>`;
+      const rows = document.getElementById('row-labels');
+      rows.innerHTML = '';
+      for (let r = 0; r < SIZE; r++) {
+        rows.innerHTML += `<span>${String.fromCharCode(65 + r)}</span>`;
+        for (let c = 0; c < SIZE; c++) {
+          const cell = document.createElement('button');
+          cell.type = 'button';
+          cell.className = 'cell';
+          cell.dataset.r = r;
+          cell.dataset.c = c;
+          applyCellVisual(cell, r, c);
+          if (!state.shots[r][c]) cell.onclick = () => onCellClick(r, c);
+          board.appendChild(cell);
+        }
+      }
+    }
+
+    function applyCellVisual(el, r, c) {
+      const shot = state.shots[r][c];
+      el.className = 'cell';
+      if (!shot) return;
+      el.classList.add('shot');
+      if (shot === 'miss') { el.classList.add('miss'); el.textContent = 'мимо'; }
+      else if (shot === 'wound') { el.classList.add('wound'); el.textContent = 'ранен'; }
+      else if (shot === 'kill') { el.classList.add('kill'); el.textContent = 'убит'; }
+    }
+
+    function onCellClick(r, c) {
+      if (state.shots[r][c]) return;
+      const q = pickNextQuestion();
+      state.pendingCell = { r, c };
+      state.currentQuestion = q;
+      showQuiz(q);
+    }
+
+    function showQuiz(q) {
+      document.getElementById('question-text').textContent = q.q;
+      const ans = document.getElementById('answers');
+      ans.innerHTML = '';
+      const opts = shuffle([...q.options.map((text, i) => ({ text, i }))]);
+      opts.forEach(({ text, i }) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'answer-btn';
+        btn.textContent = text;
+        btn.onclick = () => answerQuestion(i === q.correct);
+        ans.appendChild(btn);
+      });
+      document.getElementById('quiz-modal').classList.add('open');
+    }
+
+    function answerQuestion(isCorrect) {
+      document.getElementById('quiz-modal').classList.remove('open');
+      const { r, c } = state.pendingCell;
+      state.moves++;
+      if (isCorrect) state.correct++;
+      else state.wrong++;
+
+      let result;
+      if (isCorrect) {
+        const shipId = state.grid[r][c];
+        if (shipId) {
+          const ship = state.ships[shipId - 1];
+          ship.hits.add(`${r},${c}`);
+          const sunk = ship.cells.every(([rr, cc]) => ship.hits.has(`${rr},${cc}`));
+          if (sunk) {
+            ship.cells.forEach(([rr, cc]) => { state.shots[rr][cc] = 'kill'; });
+            result = 'kill';
+            showToast('Убит!', 'kill');
+          } else {
+            state.shots[r][c] = 'wound';
+            result = 'wound';
+            showToast('Ранен!', 'hit');
+          }
+        } else {
+          state.shots[r][c] = 'miss';
+          result = 'miss';
+          showToast('Мимо!', 'miss');
+        }
+      } else {
+        state.shots[r][c] = 'miss';
+        result = 'wrong';
+        showToast('Промах! Неверный ответ', 'wrong');
+      }
+
+      state.pendingCell = null;
+      updateStats();
+      renderBoard();
+      checkWin();
+    }
+
+    function showToast(msg, type) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = 'result-toast show ' + type;
+      clearTimeout(t._tm);
+      t._tm = setTimeout(() => t.classList.remove('show'), 2000);
+    }
+
+    function updateStats() {
+      document.getElementById('moves').textContent = state.moves;
+      document.getElementById('correct-count').textContent = state.correct;
+      document.getElementById('wrong-count').textContent = state.wrong;
+      const alive = state.ships.filter(s =>
+        s.cells.some(([rr, cc]) => !s.hits.has(`${rr},${cc}`))
+      ).length;
+      document.getElementById('ships-left').textContent = alive;
+      document.getElementById('cells-left').textContent = countOpenCells();
+    }
+
+    function checkWin() {
+      const allSunk = state.ships.every(s =>
+        s.cells.every(([rr, cc]) => s.hits.has(`${rr},${cc}`))
+      );
+      const allCellsOpen = countOpenCells() === 0;
+      if (!allSunk && !allCellsOpen) return;
+
+      const reason = allSunk
+        ? 'Все корабли потоплены!'
+        : 'Все клетки поля открыты!';
+      const cycles = state.questionCycle > 1
+        ? `<br>Циклов вопросов: ${state.questionCycle}`
+        : '';
+
+      document.getElementById('win-stats').innerHTML =
+        `<strong>${reason}</strong><br>Ходов: ${state.moves}<br>` +
+        `Верных ответов: ${state.correct}<br>Неверных: ${state.wrong}${cycles}`;
+      document.getElementById('win-overlay').classList.add('open');
+    }
+
+    initSettings();
+  </script>
+</body>
+</html>
