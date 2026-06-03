@@ -160,6 +160,7 @@
       box-shadow: 0 0 8px rgba(94,184,255,.4);
     }
     .cell.shot { cursor: default; pointer-events: none; }
+    .cell.locked { opacity: .45; cursor: not-allowed; }
     .cell.miss { background: #2c3e50; color: var(--miss); }
     .cell.wound { background: linear-gradient(180deg, #d35400, #a04000); animation: pulse .4s; }
     .cell.kill { background: linear-gradient(180deg, var(--kill), #7b241c); }
@@ -259,6 +260,8 @@
       <div class="options" id="theme-options"></div>
       <h2>Уровень сложности</h2>
       <div class="options" id="difficulty-options"></div>
+      <h2>Режим игры</h2>
+      <div class="options" id="mode-options"></div>
       <button class="btn btn-primary" id="start-btn">Начать игру</button>
     </div>
   </div>
@@ -491,6 +494,10 @@
       { id: 'medium', label: 'Средне' },
       { id: 'hard', label: 'Сложно' }
     ];
+    const GAME_MODES = [
+      { id: 'solo', label: 'Одиночная игра' },
+      { id: 'cpu', label: 'Против компьютера' }
+    ];
     const SHIPS = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
     const SIZE = 10;
     const MIN_QUESTIONS = 100;
@@ -501,11 +508,15 @@
     function initSettings() {
       const themeEl = document.getElementById('theme-options');
       const diffEl = document.getElementById('difficulty-options');
+      const modeEl = document.getElementById('mode-options');
       THEMES.forEach((t, i) => {
         themeEl.innerHTML += `<label><input type="radio" name="theme" value="${t.id}"${i === 0 ? ' checked' : ''}><span>${t.label}</span></label>`;
       });
       DIFFICULTIES.forEach((d, i) => {
         diffEl.innerHTML += `<label><input type="radio" name="difficulty" value="${d.id}"${i === 0 ? ' checked' : ''}><span>${d.label}</span></label>`;
+      });
+      GAME_MODES.forEach((m, i) => {
+        modeEl.innerHTML += `<label><input type="radio" name="gameMode" value="${m.id}"${i === 0 ? ' checked' : ''}><span>${m.label}</span></label>`;
       });
       document.getElementById('start-btn').onclick = startGame;
       document.getElementById('restart-btn').onclick = () => {
@@ -1058,23 +1069,111 @@ const QUALITY_BANNED_WORDS = [
     ];
     const QUALITY_CHECK_THEMES = ['sport', 'cinema', 'history', 'geography', 'english'];
 
+    /** Сравнение двух событий: «… раньше/позже: A или B?» */
+    function detectBinaryComparison(questionText) {
+      const m = String(questionText).match(
+        /(?:раньше|позже)[^:]*:\s*(.+?)\s+или\s+(.+?)\s*\?/i
+      );
+      if (!m) return null;
+      return { a: m[1].trim(), b: m[2].trim() };
+    }
+
+    function isEarliestAmongFourQuestion(questionText) {
+      return /раньше\s+(?:остальных|всех|других)/i.test(String(questionText));
+    }
+
     function isQuestionQualityValid(questionText, category) {
       if (category === 'math') return true;
       if (!QUALITY_CHECK_THEMES.includes(category)) return true;
       const lower = String(questionText).toLowerCase();
-      return !QUALITY_BANNED_WORDS.some(word => lower.includes(word));
+      if (QUALITY_BANNED_WORDS.some(word => lower.includes(word))) return false;
+      if (/из\s+перечисленного/i.test(lower) && /\sили\s/.test(lower)) return false;
+      return true;
+    }
+
+    function uniqueDistractors(distractors, need) {
+      const out = [];
+      for (const d of distractors) {
+        const s = String(d);
+        if (!out.includes(s)) out.push(s);
+        if (out.length >= need) break;
+      }
+      return out;
+    }
+
+    function buildQuestionFromFact(q, ans, wrong, category) {
+      if (!isQuestionQualityValid(q, category)) return null;
+      const answer = String(ans);
+      const binary = detectBinaryComparison(q);
+      let options;
+
+      if (binary) {
+        options = shuffle([binary.a, binary.b]);
+      } else if (isEarliestAmongFourQuestion(q)) {
+        const d = uniqueDistractors(wrong.filter(w => String(w) !== answer), 3);
+        if (d.length < 3) return null;
+        options = shuffle([answer, ...d.slice(0, 3)]);
+      } else {
+        const d = uniqueDistractors(wrong.filter(w => String(w) !== answer), 3);
+        if (d.length < 3) return null;
+        options = shuffle([answer, ...d.slice(0, 3)]);
+      }
+
+      const correct = options.indexOf(answer);
+      if (correct < 0) return null;
+      const raw = { q, options, correct, generated: true };
+      return validateQuestionObject(raw, category) ? raw : null;
+    }
+
+    function validateQuestionObject(q, category) {
+      if (!q || typeof q.q !== 'string' || !q.q.trim()) return false;
+      if (!Array.isArray(q.options) || q.options.length < 2 || q.options.length > 4) return false;
+      if (typeof q.correct !== 'number' || q.correct < 0 || q.correct >= q.options.length) return false;
+
+      const opts = q.options.map(o => String(o));
+      if (new Set(opts).size !== opts.length) return false;
+
+      const answer = opts[q.correct];
+      if (!answer) return false;
+
+      if (!isQuestionQualityValid(q.q, category || q.category)) return false;
+
+      const binary = detectBinaryComparison(q.q);
+      if (binary) {
+        if (opts.length !== 2) return false;
+        const set = new Set(opts);
+        if (!set.has(binary.a) || !set.has(binary.b)) return false;
+        return true;
+      }
+
+      if (isEarliestAmongFourQuestion(q.q) && opts.length !== 4) return false;
+
+      if (/из\s+перечисленного/i.test(q.q) && /\sили\s/.test(q.q)) return false;
+
+      return true;
+    }
+
+    function filterValidatedQuestionBank(bank) {
+      const valid = [];
+      let rejected = 0;
+      for (const q of bank) {
+        if (validateQuestionObject(q, q.category)) valid.push(q);
+        else rejected++;
+      }
+      if (rejected > 0) {
+        console.warn(`[Морской бой] Отброшено ${rejected} некорректных вопросов при загрузке банка.`);
+      }
+      return valid;
     }
 
     /** Возвращает вопросы, не прошедшие проверку качества для своей темы */
     function findLowQualityQuestions(questions) {
-      return questions.filter(q => !isQuestionQualityValid(q.q, q.category));
+      return questions.filter(q => !validateQuestionObject(q, q.category));
     }
 
     function factToQuestion(item, category) {
       const [q, ans, wrong] = item;
-      if (!isQuestionQualityValid(q, category)) return null;
-      const options = shuffle([ans, ...wrong.slice(0, 3)]);
-      return { q, options, correct: options.indexOf(ans), generated: true };
+      return buildQuestionFromFact(q, ans, wrong, category);
     }
 
     function factsFromPool(pool, category, limit) {
@@ -1112,7 +1211,7 @@ const QUALITY_BANNED_WORDS = [
     }
 
     function tryAddQuestion(bank, raw, category, uid) {
-      if (!raw || !isQuestionQualityValid(raw.q, category)) return false;
+      if (!raw || !validateQuestionObject(raw, category)) return false;
       if (bank.some(x => x.q === raw.q && x.category === category)) return false;
       bank.push(tagQuestion(raw, category, uid));
       return true;
@@ -1128,8 +1227,8 @@ const QUALITY_BANNED_WORDS = [
     function collectStatic(category, difficulty) {
       const list = (QUESTIONS[category] && QUESTIONS[category][difficulty]) || [];
       return list
-        .filter(q => isQuestionQualityValid(q.q, category))
-        .map((q, i) => tagQuestion(q, category, `${category}:s:${i}:${q.q}`));
+        .map((q, i) => tagQuestion(q, category, `${category}:s:${i}:${q.q}`))
+        .filter(q => validateQuestionObject(q, category));
     }
 
     function uniqueByText(bank) {
@@ -1143,13 +1242,15 @@ const QUALITY_BANNED_WORDS = [
     }
 
     function factsToQuestions(facts, category) {
-      return facts.map(([q, ans, wrong], i) => {
-        const options = shuffle([ans, ...wrong.slice(0, 3)]);
-        return {
-          q, options, correct: options.indexOf(ans), category, generated: true,
-          uid: `${category}:f:${i}:${q}`
-        };
+      const out = [];
+      facts.forEach(([q, ans, wrong], i) => {
+        const raw = buildQuestionFromFact(q, ans, wrong, category);
+        if (!raw) return;
+        out.push({
+          ...raw, category, uid: `${category}:f:${i}:${q}`
+        });
       });
+      return out;
     }
 
     function generateGeographyBatch(difficulty, limit) {
@@ -1214,7 +1315,9 @@ const QUALITY_BANNED_WORDS = [
         }
       }
 
-      return out.slice(0, limit);
+      return out.slice(0, limit)
+        .map(q => validateQuestionObject(q, 'geography') ? q : null)
+        .filter(Boolean);
     }
 
     function generateHistoryBatch(difficulty, limit) {
@@ -1229,8 +1332,21 @@ const QUALITY_BANNED_WORDS = [
           const [y2, e2] = HISTORY_YEARS[j];
           const earlier = y1 < y2 ? e1 : e2;
           const later = y1 < y2 ? e2 : e1;
-          const third = HISTORY_YEARS[(i + j + 3) % HISTORY_YEARS.length][1];
-          pool.push([`Что из перечисленного произошло раньше: ${e1} или ${e2}?`, earlier, [later, third, HISTORY_YEARS[(i + j + 5) % HISTORY_YEARS.length][1]]]);
+          pool.push([`Что произошло раньше: ${e1} или ${e2}?`, earlier, [later]]);
+        }
+      }
+      for (let round = 0; round < 15; round++) {
+        const idx = shuffle([...Array(HISTORY_YEARS.length).keys()]);
+        for (let k = 0; k + 3 < idx.length; k += 4) {
+          const group = [idx[k], idx[k + 1], idx[k + 2], idx[k + 3]].map(i => HISTORY_YEARS[i]);
+          const earliest = group.reduce((min, cur) => (cur[0] < min[0] ? cur : min), group[0]);
+          const names = group.map(([, name]) => name);
+          const wrongNames = names.filter(n => n !== earliest[1]);
+          pool.push([
+            'Какое из перечисленных событий произошло раньше остальных?',
+            earliest[1],
+            wrongNames
+          ]);
         }
       }
       return factsFromPool(pool, 'history', limit);
@@ -1318,7 +1434,7 @@ const QUALITY_BANNED_WORDS = [
         tryAddQuestion(bank, raw, category, `${category}:res:${bank.length}:${raw.q}`);
       }
       }
-      return fillBankToMinimum(bank, category, difficulty);
+      return filterValidatedQuestionBank(fillBankToMinimum(bank, category, difficulty));
     }
 
     function buildMixedBank(difficulty) {
@@ -1356,7 +1472,9 @@ const QUALITY_BANNED_WORDS = [
         }
       }
 
-      questions = fillBankToMinimum(uniqueByText(questions), effectiveTheme, difficulty);
+      questions = filterValidatedQuestionBank(
+        fillBankToMinimum(uniqueByText(questions), effectiveTheme, difficulty)
+      );
       return { questions, cycle: 1, bankWarning, effectiveTheme };
     }
 
@@ -1366,11 +1484,69 @@ const QUALITY_BANNED_WORDS = [
         : state.theme;
       const batch = generateForCategory(cat, state.difficulty, count);
       for (const raw of batch) {
+        if (!validateQuestionObject(raw, cat)) continue;
         const tq = tagQuestion(raw, cat, `${cat}:live:${state.questions.length}:${raw.q}`);
         if (!state.questions.some(x => x.q === tq.q && x.category === tq.category)) {
           state.questions.push(tq);
         }
       }
+    }
+
+    /** Клетки кораблей не должны помечаться «мимо» без попадания */
+    function countBlockedShipCells() {
+      let n = 0;
+      for (const ship of state.ships) {
+        for (const [r, c] of ship.cells) {
+          if (state.shots[r][c] === 'miss') n++;
+        }
+      }
+      return n;
+    }
+
+    function applyShotAt(r, c, toastPrefix) {
+      const shipId = state.grid[r][c];
+      if (shipId) {
+        const ship = state.ships[shipId - 1];
+        ship.hits.add(`${r},${c}`);
+        const sunk = ship.cells.every(([rr, cc]) => ship.hits.has(`${rr},${cc}`));
+        if (sunk) {
+          ship.cells.forEach(([rr, cc]) => { state.shots[rr][cc] = 'kill'; });
+          showToast(`${toastPrefix}Убит!`, 'kill');
+          return 'kill';
+        }
+        state.shots[r][c] = 'wound';
+        showToast(`${toastPrefix}Ранен!`, 'hit');
+        return 'wound';
+      }
+      state.shots[r][c] = 'miss';
+      showToast(`${toastPrefix}Мимо!`, 'miss');
+      return 'miss';
+    }
+
+    function cpuTurn() {
+      if (state.gameMode !== 'cpu' || state.isPlayerTurn || state.cpuBusy) return;
+      state.cpuBusy = true;
+      const candidates = [];
+      for (let r = 0; r < SIZE; r++)
+        for (let c = 0; c < SIZE; c++)
+          if (!state.shots[r][c]) candidates.push([r, c]);
+      if (candidates.length) {
+        const [r, c] = candidates[Math.floor(Math.random() * candidates.length)];
+        state.moves++;
+        applyShotAt(r, c, 'Компьютер: ');
+      }
+      state.isPlayerTurn = true;
+      state.cpuBusy = false;
+      updateStats();
+      renderBoard();
+      checkWin();
+    }
+
+    function endPlayerTurnAfterWrong() {
+      if (state.gameMode !== 'cpu') return;
+      state.isPlayerTurn = false;
+      renderBoard();
+      setTimeout(cpuTurn, 700);
     }
 
     function initQuestionCycle(theme, difficulty) {
@@ -1410,18 +1586,22 @@ const QUALITY_BANNED_WORDS = [
     function startGame() {
       const theme = document.querySelector('input[name="theme"]:checked').value;
       const difficulty = document.querySelector('input[name="difficulty"]:checked').value;
+      const gameMode = document.querySelector('input[name="gameMode"]:checked').value;
       const { grid, ships } = placeShips();
       const themeLabel = THEMES.find(t => t.id === theme).label;
       const diffLabel = DIFFICULTIES.find(d => d.id === difficulty).label;
+      const modeLabel = GAME_MODES.find(m => m.id === gameMode).label;
 
       const { questions, cycle, bankWarning, effectiveTheme } = initQuestionCycle(theme, difficulty);
 
       state = {
-        theme, difficulty, effectiveTheme, grid, ships,
+        theme, difficulty, effectiveTheme, gameMode, grid, ships,
         questions,
         questionCycle: cycle,
         bankWarning,
         pendingCell: null,
+        isPlayerTurn: true,
+        cpuBusy: false,
         moves: 0,
         correct: 0,
         wrong: 0,
@@ -1442,7 +1622,7 @@ const QUALITY_BANNED_WORDS = [
         ? `в банке: ${questions.length}`
         : `в банке: ${questions.length} (добор до ${MIN_QUESTIONS})`;
       document.getElementById('game-meta').textContent =
-        `${themeLabel} · ${diffLabel} · ${bankNote}`;
+        `${themeLabel} · ${diffLabel} · ${modeLabel} · ${bankNote}`;
       updateStats();
       renderBoard();
       showScreen('game');
@@ -1465,7 +1645,11 @@ const QUALITY_BANNED_WORDS = [
           cell.dataset.r = r;
           cell.dataset.c = c;
           applyCellVisual(cell, r, c);
-          if (!state.shots[r][c]) cell.onclick = () => onCellClick(r, c);
+          if (!state.shots[r][c]) {
+            const canPlay = state.gameMode === 'solo' || (state.isPlayerTurn && !state.cpuBusy);
+            if (canPlay) cell.onclick = () => onCellClick(r, c);
+            else cell.classList.add('locked');
+          }
           board.appendChild(cell);
         }
       }
@@ -1483,6 +1667,7 @@ const QUALITY_BANNED_WORDS = [
 
     function onCellClick(r, c) {
       if (state.shots[r][c]) return;
+      if (state.gameMode === 'cpu' && (!state.isPlayerTurn || state.cpuBusy)) return;
       const q = pickNextQuestion();
       state.pendingCell = { r, c };
       state.currentQuestion = q;
@@ -1514,29 +1699,24 @@ const QUALITY_BANNED_WORDS = [
 
       let result;
       if (isCorrect) {
-        const shipId = state.grid[r][c];
-        if (shipId) {
-          const ship = state.ships[shipId - 1];
-          ship.hits.add(`${r},${c}`);
-          const sunk = ship.cells.every(([rr, cc]) => ship.hits.has(`${rr},${cc}`));
-          if (sunk) {
-            ship.cells.forEach(([rr, cc]) => { state.shots[rr][cc] = 'kill'; });
-            result = 'kill';
-            showToast('Убит!', 'kill');
-          } else {
-            state.shots[r][c] = 'wound';
-            result = 'wound';
-            showToast('Ранен!', 'hit');
-          }
-        } else {
-          state.shots[r][c] = 'miss';
-          result = 'miss';
-          showToast('Мимо!', 'miss');
-        }
+        result = applyShotAt(r, c, '');
       } else {
-        state.shots[r][c] = 'miss';
         result = 'wrong';
-        showToast('Промах! Неверный ответ', 'wrong');
+        showToast(
+          state.gameMode === 'cpu'
+            ? 'Промах! Неверный ответ — ход компьютера'
+            : 'Промах! Неверный ответ — ход потерян, клетку можно выбрать снова',
+          'wrong'
+        );
+        if (countBlockedShipCells() > 0) {
+          console.error('[Морской бой] Обнаружена заблокированная клетка корабля — сброс пометки «мимо».');
+          for (const ship of state.ships) {
+            for (const [rr, cc] of ship.cells) {
+              if (state.shots[rr][cc] === 'miss') state.shots[rr][cc] = null;
+            }
+          }
+        }
+        endPlayerTurnAfterWrong();
       }
 
       state.pendingCell = null;
