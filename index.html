@@ -160,7 +160,6 @@
       box-shadow: 0 0 8px rgba(94,184,255,.4);
     }
     .cell.shot { cursor: default; pointer-events: none; }
-    .cell.locked { opacity: .45; cursor: not-allowed; }
     .cell.miss { background: #2c3e50; color: var(--miss); }
     .cell.wound { background: linear-gradient(180deg, #d35400, #a04000); animation: pulse .4s; }
     .cell.kill { background: linear-gradient(180deg, var(--kill), #7b241c); }
@@ -254,14 +253,12 @@
 <body>
   <div id="settings-screen" class="screen active">
     <h1>⚓ Морской бой + Квиз</h1>
-    <p class="subtitle">Ответь на вопрос — и твой выстрел попадёт в цель</p>
+    <p class="subtitle">Отвечай на вопросы и потопи все корабли на поле</p>
     <div class="panel">
       <h2>Тема вопросов</h2>
       <div class="options" id="theme-options"></div>
       <h2>Уровень сложности</h2>
       <div class="options" id="difficulty-options"></div>
-      <h2>Режим игры</h2>
-      <div class="options" id="mode-options"></div>
       <button class="btn btn-primary" id="start-btn">Начать игру</button>
     </div>
   </div>
@@ -494,10 +491,6 @@
       { id: 'medium', label: 'Средне' },
       { id: 'hard', label: 'Сложно' }
     ];
-    const GAME_MODES = [
-      { id: 'solo', label: 'Одиночная игра' },
-      { id: 'cpu', label: 'Против компьютера' }
-    ];
     const SHIPS = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
     const SIZE = 10;
     const MIN_QUESTIONS = 100;
@@ -508,15 +501,11 @@
     function initSettings() {
       const themeEl = document.getElementById('theme-options');
       const diffEl = document.getElementById('difficulty-options');
-      const modeEl = document.getElementById('mode-options');
       THEMES.forEach((t, i) => {
         themeEl.innerHTML += `<label><input type="radio" name="theme" value="${t.id}"${i === 0 ? ' checked' : ''}><span>${t.label}</span></label>`;
       });
       DIFFICULTIES.forEach((d, i) => {
         diffEl.innerHTML += `<label><input type="radio" name="difficulty" value="${d.id}"${i === 0 ? ' checked' : ''}><span>${d.label}</span></label>`;
-      });
-      GAME_MODES.forEach((m, i) => {
-        modeEl.innerHTML += `<label><input type="radio" name="gameMode" value="${m.id}"${i === 0 ? ' checked' : ''}><span>${m.label}</span></label>`;
       });
       document.getElementById('start-btn').onclick = startGame;
       document.getElementById('restart-btn').onclick = () => {
@@ -1503,7 +1492,7 @@ const QUALITY_BANNED_WORDS = [
       return n;
     }
 
-    function applyShotAt(r, c, toastPrefix) {
+    function applyShotAt(r, c) {
       const shipId = state.grid[r][c];
       if (shipId) {
         const ship = state.ships[shipId - 1];
@@ -1511,42 +1500,16 @@ const QUALITY_BANNED_WORDS = [
         const sunk = ship.cells.every(([rr, cc]) => ship.hits.has(`${rr},${cc}`));
         if (sunk) {
           ship.cells.forEach(([rr, cc]) => { state.shots[rr][cc] = 'kill'; });
-          showToast(`${toastPrefix}Убит!`, 'kill');
+          showToast('Убит!', 'kill');
           return 'kill';
         }
         state.shots[r][c] = 'wound';
-        showToast(`${toastPrefix}Ранен!`, 'hit');
+        showToast('Ранен!', 'hit');
         return 'wound';
       }
       state.shots[r][c] = 'miss';
-      showToast(`${toastPrefix}Мимо!`, 'miss');
+      showToast('Мимо!', 'miss');
       return 'miss';
-    }
-
-    function cpuTurn() {
-      if (state.gameMode !== 'cpu' || state.isPlayerTurn || state.cpuBusy) return;
-      state.cpuBusy = true;
-      const candidates = [];
-      for (let r = 0; r < SIZE; r++)
-        for (let c = 0; c < SIZE; c++)
-          if (!state.shots[r][c]) candidates.push([r, c]);
-      if (candidates.length) {
-        const [r, c] = candidates[Math.floor(Math.random() * candidates.length)];
-        state.moves++;
-        applyShotAt(r, c, 'Компьютер: ');
-      }
-      state.isPlayerTurn = true;
-      state.cpuBusy = false;
-      updateStats();
-      renderBoard();
-      checkWin();
-    }
-
-    function endPlayerTurnAfterWrong() {
-      if (state.gameMode !== 'cpu') return;
-      state.isPlayerTurn = false;
-      renderBoard();
-      setTimeout(cpuTurn, 700);
     }
 
     function initQuestionCycle(theme, difficulty) {
@@ -1586,22 +1549,18 @@ const QUALITY_BANNED_WORDS = [
     function startGame() {
       const theme = document.querySelector('input[name="theme"]:checked').value;
       const difficulty = document.querySelector('input[name="difficulty"]:checked').value;
-      const gameMode = document.querySelector('input[name="gameMode"]:checked').value;
       const { grid, ships } = placeShips();
       const themeLabel = THEMES.find(t => t.id === theme).label;
       const diffLabel = DIFFICULTIES.find(d => d.id === difficulty).label;
-      const modeLabel = GAME_MODES.find(m => m.id === gameMode).label;
 
       const { questions, cycle, bankWarning, effectiveTheme } = initQuestionCycle(theme, difficulty);
 
       state = {
-        theme, difficulty, effectiveTheme, gameMode, grid, ships,
+        theme, difficulty, effectiveTheme, grid, ships,
         questions,
         questionCycle: cycle,
         bankWarning,
         pendingCell: null,
-        isPlayerTurn: true,
-        cpuBusy: false,
         moves: 0,
         correct: 0,
         wrong: 0,
@@ -1622,7 +1581,7 @@ const QUALITY_BANNED_WORDS = [
         ? `в банке: ${questions.length}`
         : `в банке: ${questions.length} (добор до ${MIN_QUESTIONS})`;
       document.getElementById('game-meta').textContent =
-        `${themeLabel} · ${diffLabel} · ${modeLabel} · ${bankNote}`;
+        `${themeLabel} · ${diffLabel} · ${bankNote}`;
       updateStats();
       renderBoard();
       showScreen('game');
@@ -1645,11 +1604,7 @@ const QUALITY_BANNED_WORDS = [
           cell.dataset.r = r;
           cell.dataset.c = c;
           applyCellVisual(cell, r, c);
-          if (!state.shots[r][c]) {
-            const canPlay = state.gameMode === 'solo' || (state.isPlayerTurn && !state.cpuBusy);
-            if (canPlay) cell.onclick = () => onCellClick(r, c);
-            else cell.classList.add('locked');
-          }
+          if (!state.shots[r][c]) cell.onclick = () => onCellClick(r, c);
           board.appendChild(cell);
         }
       }
@@ -1667,7 +1622,6 @@ const QUALITY_BANNED_WORDS = [
 
     function onCellClick(r, c) {
       if (state.shots[r][c]) return;
-      if (state.gameMode === 'cpu' && (!state.isPlayerTurn || state.cpuBusy)) return;
       const q = pickNextQuestion();
       state.pendingCell = { r, c };
       state.currentQuestion = q;
@@ -1699,15 +1653,10 @@ const QUALITY_BANNED_WORDS = [
 
       let result;
       if (isCorrect) {
-        result = applyShotAt(r, c, '');
+        result = applyShotAt(r, c);
       } else {
         result = 'wrong';
-        showToast(
-          state.gameMode === 'cpu'
-            ? 'Промах! Неверный ответ — ход компьютера'
-            : 'Промах! Неверный ответ — ход потерян, клетку можно выбрать снова',
-          'wrong'
-        );
+        showToast('Промах! Неверный ответ — клетку можно выбрать снова', 'wrong');
         if (countBlockedShipCells() > 0) {
           console.error('[Морской бой] Обнаружена заблокированная клетка корабля — сброс пометки «мимо».');
           for (const ship of state.ships) {
@@ -1716,7 +1665,6 @@ const QUALITY_BANNED_WORDS = [
             }
           }
         }
-        endPlayerTurnAfterWrong();
       }
 
       state.pendingCell = null;
